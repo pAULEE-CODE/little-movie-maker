@@ -259,4 +259,3 @@ internal class ProjectRepository(context: Context) {
         const val LEGACY_PROJECT_ID = "legacy-my-first-movie"
     }
 }
-

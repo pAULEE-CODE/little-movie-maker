@@ -164,4 +164,3 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawModeIcon(icon: 
         }
     }
 }
-

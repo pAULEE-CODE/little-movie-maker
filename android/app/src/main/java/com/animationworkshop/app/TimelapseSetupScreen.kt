@@ -133,4 +133,3 @@ internal fun TimelapseSetupScreen(onOpenModes: () -> Unit, onBack: () -> Unit, o
         }, modifier = Modifier.fillMaxWidth().height(58.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = SetupTeal)) { Text("Start Timelapse  ▶", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
     }
 }
-

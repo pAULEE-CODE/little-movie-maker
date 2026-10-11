@@ -814,4 +814,3 @@ private fun BitmapImage(
         contentScale = contentScale
     )
 }
-

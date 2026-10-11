@@ -168,4 +168,3 @@ internal class FrameStore(private val projectFolder: File) {
         }
     }
 }
-

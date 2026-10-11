@@ -27,4 +27,3 @@ app\build\outputs\apk\debug\app-debug.apk
 ## Development build workflow
 
 After Android source changes, build with the PowerShell procedure above before reporting completion. If Kotlin compilation fails, inspect the compiler diagnostics, fix the source errors, and rerun `assembleDebug`. Repeat until the debug APK builds or a remaining blocker prevents it. Report the build result and APK path. Do not change Windows security settings or Gradle configuration to work around the environment issue.
-

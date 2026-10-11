@@ -175,4 +175,3 @@ private sealed interface GalleryDialog {
     data class Duplicate(val project: AnimationProject) : GalleryDialog
     data class Delete(val project: AnimationProject) : GalleryDialog
 }
-

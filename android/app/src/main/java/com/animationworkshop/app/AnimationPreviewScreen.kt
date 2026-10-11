@@ -578,4 +578,3 @@ internal fun decodeSampledFrame(file: File, targetWidth: Int, targetHeight: Int)
     synchronized(FrameBitmapCache) { FrameBitmapCache.put(cacheKey, corrected) }
     return corrected
 }
-
