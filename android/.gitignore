@@ -1,0 +1,23 @@
+# Gradle and Kotlin build outputs/caches
+.gradle/
+.kotlin/
+**/build/
+
+# Android Studio and machine-specific configuration
+.idea/
+*.iml
+local.properties
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Signing material and local secrets
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+secrets.properties
+.env
+.env.*
+
