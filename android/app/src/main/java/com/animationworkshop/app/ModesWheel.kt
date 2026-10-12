@@ -42,15 +42,18 @@ import kotlin.math.min
 import kotlin.math.sin
 
 internal enum class ModeDestination(val label: String, val icon: ModeIcon, val color: Color) {
-    CAMERA("Camera", ModeIcon.CAMERA, Color(0xFF31A996)),
-    TIMELAPSE("Timelapse", ModeIcon.TIMER, Color(0xFFFF8177)),
-    PREVIEW("Preview", ModeIcon.PLAY, Color(0xFF8E83D8)),
-    EDIT("Edit", ModeIcon.SCISSORS, Color(0xFFFFB64D)),
-    EXPORT("Export", ModeIcon.FILM, Color(0xFF50A6D8)),
-    PROJECTS("Projects", ModeIcon.FOLDER, Color(0xFF71BD7A))
+    CAMERA("Camera\n相機", ModeIcon.CAMERA, Color(0xFF31A996)),
+    TIMELAPSE("Timelapse\n縮時", ModeIcon.TIMER, Color(0xFFFF8177)),
+    PREVIEW("Preview\n預覽", ModeIcon.PLAY, Color(0xFF8E83D8)),
+    EDIT("Edit\n編輯", ModeIcon.SCISSORS, Color(0xFFFFB64D)),
+    EXPORT("Export\n匯出", ModeIcon.FILM, Color(0xFF50A6D8)),
+    PROJECTS("Projects\n專案", ModeIcon.FOLDER, Color(0xFF71BD7A)),
+    EFFECTS("Effects\n特效", ModeIcon.EFFECTS, Color(0xFFEC77B5)),
+    SHARE("Share\n分享", ModeIcon.SHARE, Color(0xFF4FA6D8)),
+    ADVANCED("Advanced\n進階", ModeIcon.ADVANCED, Color(0xFF8FAD55))
 }
 
-internal enum class ModeIcon { CAMERA, TIMER, PLAY, SCISSORS, FILM, FOLDER }
+internal enum class ModeIcon { CAMERA, TIMER, PLAY, SCISSORS, FILM, FOLDER, EFFECTS, SHARE, ADVANCED }
 
 @Composable
 internal fun ModesWheel(
@@ -62,8 +65,8 @@ internal fun ModesWheel(
     BackHandler(enabled = visible, onBack = onDismiss)
     BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
         val wheelSize = min(maxWidth.value, maxHeight.value * 0.86f).dp.coerceAtMost(480.dp)
-        val buttonSize = (wheelSize * 0.235f).coerceIn(52.dp, 94.dp)
-        val radius = wheelSize * 0.345f
+        val buttonSize = (wheelSize * 0.19f).coerceIn(52.dp, 82.dp)
+        val radius = wheelSize * 0.37f
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             AnimatedVisibility(
                 visible = visible,
@@ -74,7 +77,7 @@ internal fun ModesWheel(
                     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.52f)).clickable(onClick = onDismiss))
                     Box(Modifier.size(wheelSize), contentAlignment = Alignment.Center) {
                         ModeDestination.entries.forEachIndexed { index, destination ->
-                            val angle = Math.toRadians((-90.0 + index * 60.0))
+                            val angle = Math.toRadians(-90.0 + index * 360.0 / ModeDestination.entries.size)
                             val dx = radius * cos(angle).toFloat()
                             val dy = radius * sin(angle).toFloat()
                             ModeWheelButton(
@@ -86,10 +89,10 @@ internal fun ModesWheel(
                             )
                         }
                         Box(
-                            Modifier.size(wheelSize * 0.31f).clip(CircleShape).background(Color(0xFFFFFDF5)),
+                            Modifier.size(wheelSize * 0.24f).clip(CircleShape).background(Color(0xFFFFFDF5)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("Animation\nWorkshop", color = Color(0xFF23413C), fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
+                            Text("Animation\nWorkshop", color = Color(0xFF23413C), fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
                         }
                     }
                 }
@@ -115,8 +118,8 @@ private fun ModeWheelButton(
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
     ) {
         Canvas(Modifier.size(size * 0.37f)) { drawModeIcon(destination.icon, Color.White) }
-        Text(destination.label, color = Color.White, fontSize = if (size < 82.dp) 11.sp else 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 1)
-        if (selected) Text("HERE", color = Color.White.copy(alpha = .9f), fontSize = 8.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 9.sp)
+        Text(destination.label, color = Color.White, fontSize = if (size < 72.dp) 8.sp else 9.sp, lineHeight = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2)
+        if (selected) Text("HERE / 目前", color = Color.White.copy(alpha = .9f), fontSize = 6.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 7.sp, maxLines = 1)
     }
 }
 
@@ -161,6 +164,41 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawModeIcon(icon: 
                 lineTo(size.width * .77f, bottom); lineTo(left, bottom); close()
             }
             drawPath(path, color, style = Stroke(sw, cap = StrokeCap.Round))
+        }
+        ModeIcon.EFFECTS -> {
+            val center = androidx.compose.ui.geometry.Offset(size.width * .5f, size.height * .5f)
+            drawCircle(color, size.minDimension * .12f, center)
+            for (angle in 0..7) {
+                val radians = Math.toRadians(angle * 45.0)
+                val inner = size.minDimension * .2f
+                val outer = size.minDimension * .36f
+                drawLine(color,
+                    androidx.compose.ui.geometry.Offset(center.x + cos(radians).toFloat() * inner, center.y + sin(radians).toFloat() * inner),
+                    androidx.compose.ui.geometry.Offset(center.x + cos(radians).toFloat() * outer, center.y + sin(radians).toFloat() * outer), sw, StrokeCap.Round)
+            }
+        }
+        ModeIcon.SHARE -> {
+            val points = listOf(
+                androidx.compose.ui.geometry.Offset(size.width * .28f, size.height * .5f),
+                androidx.compose.ui.geometry.Offset(size.width * .7f, size.height * .28f),
+                androidx.compose.ui.geometry.Offset(size.width * .7f, size.height * .72f)
+            )
+            drawLine(color, points[0], points[1], sw, StrokeCap.Round)
+            drawLine(color, points[0], points[2], sw, StrokeCap.Round)
+            points.forEach { drawCircle(color, sw * 2.1f, it) }
+        }
+        ModeIcon.ADVANCED -> {
+            val center = androidx.compose.ui.geometry.Offset(size.width * .5f, size.height * .5f)
+            drawCircle(color, size.minDimension * .27f, center, style = Stroke(sw))
+            drawCircle(color, size.minDimension * .09f, center)
+            for (angle in 0..7) {
+                val radians = Math.toRadians(angle * 45.0)
+                val inner = size.minDimension * .31f
+                val outer = size.minDimension * .42f
+                drawLine(color,
+                    androidx.compose.ui.geometry.Offset(center.x + cos(radians).toFloat() * inner, center.y + sin(radians).toFloat() * inner),
+                    androidx.compose.ui.geometry.Offset(center.x + cos(radians).toFloat() * outer, center.y + sin(radians).toFloat() * outer), sw, StrokeCap.Round)
+            }
         }
     }
 }

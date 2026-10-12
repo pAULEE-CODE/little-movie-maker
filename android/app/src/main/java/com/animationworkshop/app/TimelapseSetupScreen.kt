@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableIntStateOf
@@ -30,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -50,7 +52,8 @@ internal data class TimelapseConfig(
     val stopCondition: TimelapseStopCondition,
     val frameLimit: Int,
     val durationMinutes: Int,
-    val stopAtMillis: Long
+    val stopAtMillis: Long,
+    val countdownSoundEnabled: Boolean
 )
 
 private val SetupBackground = Color(0xFF182522)
@@ -59,6 +62,8 @@ private val SetupTeal = Color(0xFF31A996)
 @Composable
 internal fun TimelapseSetupScreen(onOpenModes: () -> Unit, onBack: () -> Unit, onStart: (TimelapseConfig) -> Unit) {
     val context = LocalContext.current
+    val preferences = remember(context) { context.getSharedPreferences("animation_workshop", android.content.Context.MODE_PRIVATE) }
+    var countdownSoundEnabled by remember { mutableStateOf(preferences.getBoolean("timelapse_countdown_sound", true)) }
     var interval by remember { mutableIntStateOf(5) }
     var customInterval by remember { mutableStateOf("5") }
     var isCustom by remember { mutableStateOf(false) }
@@ -90,6 +95,19 @@ internal fun TimelapseSetupScreen(onOpenModes: () -> Unit, onBack: () -> Unit, o
         Button(onClick = { isCustom = true }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), colors = ButtonDefaults.buttonColors(containerColor = if (isCustom) SetupTeal else Color(0xFF34443F))) { Text("Custom interval") }
         if (isCustom) {
             OutlinedTextField(value = customInterval, onValueChange = { customInterval = it.filter(Char::isDigit) }, label = { Text("Seconds between photos") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.fillMaxWidth())
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 10.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFF263833)).padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Countdown Sound / 倒數提示音", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("Beeps at 3, 2, 1 when interval is over 3 seconds. / 間隔超過3秒時於拍攝前提示。", color = Color.White.copy(alpha = .78f), fontSize = 11.sp)
+            }
+            Switch(checked = countdownSoundEnabled, onCheckedChange = { enabled ->
+                countdownSoundEnabled = enabled
+                preferences.edit().putBoolean("timelapse_countdown_sound", enabled).apply()
+            })
         }
         Spacer(Modifier.height(18.dp))
         Text("Stop automatically…", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
@@ -128,7 +146,7 @@ internal fun TimelapseSetupScreen(onOpenModes: () -> Unit, onBack: () -> Unit, o
             if (!valid) error = "Choose a valid interval and stopping target."
             else {
                 error = null
-                onStart(TimelapseConfig(chosenInterval!!, condition, count ?: 0, duration.toInt(), stopAtMillis))
+                onStart(TimelapseConfig(chosenInterval!!, condition, count ?: 0, duration.toInt(), stopAtMillis, countdownSoundEnabled))
             }
         }, modifier = Modifier.fillMaxWidth().height(58.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = SetupTeal)) { Text("Start Timelapse  ▶", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
     }

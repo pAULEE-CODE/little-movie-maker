@@ -1,10 +1,21 @@
 package com.animationworkshop.app
 
 import android.Manifest
+import android.app.Activity
+import android.content.ClipData
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
 import android.os.Bundle
 import android.os.SystemClock
+import android.provider.MediaStore
+import android.content.ContentUris
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -49,6 +60,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -61,6 +74,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
@@ -141,12 +155,21 @@ private fun StopMotionApp() {
     var permissionDenied by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var settingsMessage by remember { mutableStateOf<String?>(null) }
+    var modeNotice by remember { mutableStateOf<String?>(null) }
+    var autoAdvanceSplash by remember { mutableStateOf(true) }
+    var galleryView by remember {
+        mutableStateOf(runCatching {
+            ProjectGalleryView.valueOf(context.getSharedPreferences("animation_workshop", Context.MODE_PRIVATE)
+                .getString("project_gallery_view", ProjectGalleryView.LARGE.name) ?: ProjectGalleryView.LARGE.name)
+        }.getOrDefault(ProjectGalleryView.LARGE))
+    }
     val persistenceScope = rememberCoroutineScope()
     val activity = context as? ComponentActivity
     val immersive = screen == AppScreen.CAMERA || screen == AppScreen.PREVIEW || screen == AppScreen.TIMELAPSE_SETUP || screen == AppScreen.TIMELAPSE
 
     BackHandler(enabled = screen == AppScreen.GALLERY || screen == AppScreen.PREVIEW || screen == AppScreen.REVIEW || screen == AppScreen.TIMELAPSE_SETUP) {
         if (screen == AppScreen.PREVIEW || screen == AppScreen.TIMELAPSE_SETUP || screen == AppScreen.REVIEW) activeMode = ModeDestination.CAMERA
+        if (screen == AppScreen.GALLERY) autoAdvanceSplash = false
         screen = when (screen) {
             AppScreen.GALLERY -> AppScreen.HOME
             AppScreen.PREVIEW -> AppScreen.CAMERA
@@ -220,6 +243,29 @@ private fun StopMotionApp() {
         }
     }
 
+    fun shareLatestExportedMovie() {
+        persistenceScope.launch {
+            val movieUri = withContext(Dispatchers.IO) { findLatestExportedMovieUri(context) }
+            if (movieUri == null) {
+                modeNotice = "No exported movie was found. Open Preview and choose Export Movie first. / 找不到已匯出的影片。請先開啟預覽並選擇「匯出影片」。"
+                return@launch
+            }
+            runCatching {
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "video/mp4"
+                    putExtra(Intent.EXTRA_STREAM, movieUri)
+                    clipData = ClipData.newUri(context.contentResolver, "Animation Workshop movie", movieUri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                val chooser = Intent.createChooser(send, "Share Movie / 分享電影")
+                if (context !is Activity) chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(chooser)
+            }.onFailure {
+                modeNotice = "The movie could not be shared. Please try exporting it again. / 無法分享影片，請重新匯出後再試。"
+            }
+        }
+    }
+
     fun navigateToMode(destination: ModeDestination) {
         modesOpen = false
         if (timelapseActive) {
@@ -227,7 +273,6 @@ private fun StopMotionApp() {
             showTimelapseNavigationConfirm = true
             return
         }
-        if (destination == ModeDestination.PROJECTS) { activeMode = destination; screen = AppScreen.GALLERY; return }
         activeMode = destination
         when (destination) {
             ModeDestination.CAMERA -> {
@@ -241,6 +286,8 @@ private fun StopMotionApp() {
                 if (destination == ModeDestination.EXPORT) exportRequest++
             }
             ModeDestination.PROJECTS -> screen = AppScreen.GALLERY
+            ModeDestination.EFFECTS, ModeDestination.ADVANCED -> modeNotice = "Coming Soon! / 即將推出！"
+            ModeDestination.SHARE -> shareLatestExportedMovie()
         }
     }
 
@@ -317,7 +364,9 @@ private fun StopMotionApp() {
             frameCount = snapshot.frames.size,
             latestBitmap = snapshot.latestBitmap,
             permissionDenied = permissionDenied,
+            autoAdvanceToGallery = autoAdvanceSplash,
             onContinueAnimation = {
+                autoAdvanceSplash = false
                 message = null
                 activeMode = ModeDestination.PROJECTS
                 projectMessage = null
@@ -334,6 +383,12 @@ private fun StopMotionApp() {
             activeId = activeProjectId,
             busy = projectOperationBusy,
             message = projectMessage,
+            viewMode = galleryView,
+            onViewModeChange = { selected ->
+                galleryView = selected
+                context.getSharedPreferences("animation_workshop", Context.MODE_PRIVATE).edit()
+                    .putString("project_gallery_view", selected.name).apply()
+            },
             onOpen = ::openProject,
             onCreate = { name -> runProjectOperation {
                 val created = withContext(Dispatchers.IO) { projectRepository.create(name) }
@@ -360,7 +415,7 @@ private fun StopMotionApp() {
                 if (activeProjectId == project.id) activeProjectId = nextId
                 refresh++
             } },
-            onBack = { screen = AppScreen.HOME }
+            onBack = { autoAdvanceSplash = false; screen = AppScreen.HOME }
         )
         AppScreen.CAMERA, AppScreen.TIMELAPSE -> {
             val timelapse = if (screen == AppScreen.TIMELAPSE) timelapseConfig else null
@@ -446,22 +501,60 @@ private fun StopMotionApp() {
         confirmButton = { TextButton(onClick = ::confirmPendingMode) { Text("Stop and continue") } },
         dismissButton = { TextButton(onClick = { showTimelapseNavigationConfirm = false; pendingMode = null }) { Text("Keep recording") } }
     )
+    modeNotice?.let { notice ->
+        AlertDialog(
+            onDismissRequest = { modeNotice = null },
+            title = { Text("Animation Workshop / 動畫工作室") },
+            text = { Text(notice) },
+            confirmButton = { TextButton(onClick = { modeNotice = null }) { Text("OK / 好") } }
+        )
+    }
     }
 
 }
 
 private enum class AppScreen { HOME, GALLERY, CAMERA, TIMELAPSE_SETUP, TIMELAPSE, PREVIEW, REVIEW }
 
+private fun findLatestExportedMovieUri(context: Context): Uri? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+    val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+    val projection = arrayOf(MediaStore.Video.Media._ID)
+    val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND ${MediaStore.MediaColumns.MIME_TYPE} = ? AND ${MediaStore.MediaColumns.IS_PENDING} = 0"
+    val selectionArgs = arrayOf("${Environment.DIRECTORY_MOVIES}/AnimationWorkshop/", "video/mp4")
+    return runCatching {
+        context.contentResolver.query(
+            collection,
+            projection,
+            selection,
+            selectionArgs,
+            "${MediaStore.MediaColumns.DATE_ADDED} DESC"
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) ContentUris.withAppendedId(collection, cursor.getLong(0)) else null
+        }
+    }.getOrNull()
+}
+
 @Composable
 private fun HomeScreen(
     frameCount: Int,
     latestBitmap: Bitmap?,
     permissionDenied: Boolean,
+    autoAdvanceToGallery: Boolean,
     onContinueAnimation: () -> Unit,
     onOpenModes: () -> Unit,
     onReview: () -> Unit
 ) {
-    BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF8EDBFA))) {
+    val splashAlpha = remember { Animatable(1f) }
+    LaunchedEffect(autoAdvanceToGallery) {
+        if (autoAdvanceToGallery) {
+            delay(2_000)
+            splashAlpha.animateTo(0f, animationSpec = tween(durationMillis = 450))
+            onContinueAnimation()
+        } else {
+            splashAlpha.snapTo(1f)
+        }
+    }
+    BoxWithConstraints(Modifier.fillMaxSize().graphicsLayer { alpha = splashAlpha.value }.background(Color(0xFF8EDBFA))) {
         val scale = minOf(maxWidth.value / 852f, maxHeight.value / 1858f)
         val artWidth = 852f * scale
         val artHeight = 1858f * scale
@@ -571,6 +664,9 @@ private fun CameraScreen(
     var showLeaveWarning by remember { mutableStateOf(false) }
     var leaveToManual by remember { mutableStateOf(false) }
     val view = LocalView.current
+    val toneGenerator = remember(timelapseConfig != null) {
+        if (timelapseConfig != null) runCatching { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 70) }.getOrNull() else null
+    }
 
     fun activeElapsedNow(): Long = activeElapsedMillis + if (timelapseStatus == TimelapseStatus.RECORDING) SystemClock.elapsedRealtime() - activeSegmentStart else 0L
     fun finishTimelapse() {
@@ -594,6 +690,9 @@ private fun CameraScreen(
         view.keepScreenOn = timelapseStatus == TimelapseStatus.RECORDING
         onDispose { view.keepScreenOn = false }
     }
+    DisposableEffect(toneGenerator) {
+        onDispose { runCatching { toneGenerator?.release() } }
+    }
     DisposableEffect(lifecycleOwner, timelapseStatus) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP && timelapseStatus == TimelapseStatus.RECORDING) {
@@ -609,6 +708,8 @@ private fun CameraScreen(
         if (timelapseStatus != TimelapseStatus.RECORDING || imageCapture == null) return@LaunchedEffect
         val intervalMillis = config.intervalSeconds * 1000L
         var nextCaptureAt = if (hasTakenFirstFrame) SystemClock.elapsedRealtime() + intervalMillis else SystemClock.elapsedRealtime()
+        var countdownTarget = Long.MIN_VALUE
+        var countdownSecond = 0
         while (isActive && timelapseStatus == TimelapseStatus.RECORDING) {
             val now = SystemClock.elapsedRealtime()
             if (config.stopCondition == TimelapseStopCondition.CLOCK_TIME && System.currentTimeMillis() >= config.stopAtMillis) {
@@ -623,8 +724,37 @@ private fun CameraScreen(
                 finishTimelapse(); break
             }
             val untilCapture = (nextCaptureAt - now).coerceAtLeast(0L)
-            val waitFor = if (config.stopCondition == TimelapseStopCondition.RECORDING_DURATION) minOf(untilCapture, durationRemaining) else untilCapture
-            if (waitFor > 0) { delay(waitFor); continue }
+            val clockRemaining = if (config.stopCondition == TimelapseStopCondition.CLOCK_TIME) (config.stopAtMillis - System.currentTimeMillis()).coerceAtLeast(0L) else Long.MAX_VALUE
+            val stopRemaining = when (config.stopCondition) {
+                TimelapseStopCondition.FRAME_COUNT -> Long.MAX_VALUE
+                TimelapseStopCondition.RECORDING_DURATION -> durationRemaining
+                TimelapseStopCondition.CLOCK_TIME -> clockRemaining
+            }
+            val waitFor = minOf(untilCapture, stopRemaining)
+            if (untilCapture > 0L) {
+                val countdownAllowed = config.countdownSoundEnabled && config.intervalSeconds > 3 && hasTakenFirstFrame && waitFor == untilCapture
+                if (countdownAllowed) {
+                    if (countdownTarget != nextCaptureAt) {
+                        countdownTarget = nextCaptureAt
+                        countdownSecond = 3
+                    }
+                    if (countdownSecond > 0) {
+                        val beepAt = countdownTarget - countdownSecond * 1_000L
+                        val beepDelay = beepAt - SystemClock.elapsedRealtime()
+                        if (beepDelay > 0L) delay(beepDelay)
+                        if (timelapseStatus != TimelapseStatus.RECORDING) continue
+                        val remainingAtBeep = countdownTarget - SystemClock.elapsedRealtime()
+                        val lowerBound = (countdownSecond - 1) * 1_000L
+                        val upperBound = countdownSecond * 1_000L
+                        if (remainingAtBeep > lowerBound && remainingAtBeep <= upperBound + 150L) {
+                            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 100)
+                        }
+                        countdownSecond--
+                        continue
+                    }
+                }
+                if (waitFor > 0L) { delay(waitFor); continue }
+            }
             val currentCapture = imageCapture ?: break
             if (capturePending) { delay(25); continue }
             capturePending = true
