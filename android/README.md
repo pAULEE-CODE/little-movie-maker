@@ -27,3 +27,19 @@ app\build\outputs\apk\debug\app-debug.apk
 ## Development build workflow
 
 After Android source changes, build with the PowerShell procedure above before reporting completion. If Kotlin compilation fails, inspect the compiler diagnostics, fix the source errors, and rerun `assembleDebug`. Repeat until the debug APK builds or a remaining blocker prevents it. Report the build result and APK path. Do not change Windows security settings or Gradle configuration to work around the environment issue.
+
+## Private Google Drive test builds
+
+Use `build-test-apk.ps1` for a debug build that uploads only after Gradle succeeds and a nonempty APK is present. It reads the app's `versionName` and uploads a uniquely timestamped file such as `LittleMovieMaker-test-20261012-090014-123-v1.1.apk` to the private **Little Movie Maker — Test Builds** folder. Previous builds are retained. The script verifies the upload by listing the destination folder. Failed builds and incomplete APKs are never uploaded.
+
+The script uses the `gdrive` remote from [rclone](https://rclone.org/drive/). Install rclone, then run `rclone config`, create a remote named `gdrive` of type `drive`, and complete Google's browser sign-in with the account that owns the test-build folder. Keep rclone's configuration in its default user profile location (`%APPDATA%\rclone\rclone.conf`); do not copy credentials into this repository. The uploader only writes a new file into the existing folder and does not change sharing permissions. The folder is owned by `paulee6868@gmail.com` and has no public/link permission.
+
+From the project root, run:
+
+```powershell
+& .\build-test-apk.ps1
+```
+
+The process-scoped Android Studio JDK and `TEMP`/`TMP` overrides are applied by the script. If rclone or its Drive sign-in is not available, the script stops with setup instructions before building. For a build without upload, use the debug-build command above; `.gitignore` excludes APK files so they cannot be committed accidentally.
+
+GitHub Releases remain reserved for approved public APKs.

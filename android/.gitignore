@@ -2,6 +2,7 @@
 .gradle/
 .kotlin/
 **/build/
+*.apk
 
 # Android Studio and machine-specific configuration
 .idea/
