@@ -23,6 +23,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.CaptureRequestOptions
+import android.hardware.camera2.CaptureRequest
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
@@ -66,6 +69,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -104,19 +108,20 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
-private val Sky = Color(0xFFE9F7F4)
-private val Ink = Color(0xFF23413C)
-private val Teal = Color(0xFF31A996)
-private val Coral = Color(0xFFFF5B59)
-private val Cream = Color(0xFFFFFDF5)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            AnimationWorkshopTheme(dynamicColor = false) {
-                Surface(modifier = Modifier.fillMaxSize(), color = Cream) {
-                    StopMotionApp()
+            var themeMode by remember {
+                mutableStateOf(getSharedPreferences("animation_workshop", Context.MODE_PRIVATE).getString("theme_mode", "SYSTEM") ?: "SYSTEM")
+            }
+            AnimationWorkshopTheme(themePreference = themeMode, dynamicColor = false) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    StopMotionApp(themeMode = themeMode, onThemeModeChange = { selected ->
+                        themeMode = selected
+                        getSharedPreferences("animation_workshop", Context.MODE_PRIVATE).edit().putString("theme_mode", selected).apply()
+                    })
                 }
             }
         }
@@ -126,10 +131,11 @@ class MainActivity : ComponentActivity() {
 private data class ProjectSnapshot(val frames: List<AnimationFrame>, val latestBitmap: Bitmap?)
 
 @Composable
-private fun StopMotionApp() {
+private fun StopMotionApp(themeMode: String, onThemeModeChange: (String) -> Unit) {
     val context = LocalContext.current
     val projectRepository = remember { ProjectRepository(context) }
     var projects by remember { mutableStateOf<List<ProjectGalleryItem>>(emptyList()) }
+    var folderProjectCounts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
     var allFolders by remember { mutableStateOf<List<AnimationFolder>>(emptyList()) }
     var currentFolderId by remember { mutableStateOf<String?>(null) }
     var activeProjectId by remember { mutableStateOf<String?>(null) }
@@ -151,6 +157,11 @@ private fun StopMotionApp() {
     var playbackFps by remember { mutableStateOf(8) }
     var confirmFrameDeletion by remember { mutableStateOf(true) }
     var timelineZoomLevel by remember { mutableStateOf(1) }
+    var movieRotationDegrees by remember { mutableIntStateOf(0) }
+    val appPreferences = remember(context) { context.getSharedPreferences("animation_workshop", Context.MODE_PRIVATE) }
+    val defaultFps = appPreferences.getInt("default_fps", 8).coerceIn(1, 24)
+    val defaultZoom = appPreferences.getInt("default_timeline_zoom", 1).coerceIn(0, 2)
+    var automaticProjectPreview by remember { mutableStateOf(appPreferences.getBoolean("automatic_project_preview", true)) }
     var refresh by remember { mutableStateOf(0) }
     var snapshot by remember { mutableStateOf(ProjectSnapshot(emptyList(), null)) }
     var hasCameraPermission by remember {
@@ -172,7 +183,7 @@ private fun StopMotionApp() {
     val activity = context as? ComponentActivity
     val immersive = screen == AppScreen.CAMERA || screen == AppScreen.PREVIEW || screen == AppScreen.TIMELAPSE_SETUP || screen == AppScreen.TIMELAPSE
 
-    BackHandler(enabled = screen == AppScreen.GALLERY || screen == AppScreen.PREVIEW || screen == AppScreen.REVIEW || screen == AppScreen.TIMELAPSE_SETUP || screen == AppScreen.EFFECTS) {
+    BackHandler(enabled = screen == AppScreen.GALLERY || screen == AppScreen.PREVIEW || screen == AppScreen.REVIEW || screen == AppScreen.TIMELAPSE_SETUP || screen == AppScreen.EFFECTS || screen == AppScreen.SETTINGS) {
         if (screen == AppScreen.PREVIEW || screen == AppScreen.TIMELAPSE_SETUP || screen == AppScreen.REVIEW) activeMode = ModeDestination.CAMERA
         if (screen == AppScreen.GALLERY) autoAdvanceSplash = false
         screen = when (screen) {
@@ -181,6 +192,7 @@ private fun StopMotionApp() {
             AppScreen.REVIEW -> AppScreen.HOME
             AppScreen.TIMELAPSE_SETUP -> AppScreen.CAMERA
             AppScreen.EFFECTS -> AppScreen.GALLERY
+            AppScreen.SETTINGS -> AppScreen.GALLERY
             else -> screen
         }
     }
@@ -206,11 +218,14 @@ private fun StopMotionApp() {
             all.map { project ->
                 val store = projectRepository.frameStore(project)
                 val frames = store.frames()
-                ProjectGalleryItem(project, frames.size, frames.lastOrNull()?.file, store.playbackFps(), frames)
+                ProjectGalleryItem(project, frames.size, frames.lastOrNull()?.file, store.playbackFps(), frames, store.movieRotationDegrees())
             }
         }
         projects = items
         allFolders = withContext(Dispatchers.IO) { projectRepository.folders() }
+        folderProjectCounts = withContext(Dispatchers.IO) {
+            projectRepository.projects().filter { it.folderId != null }.groupingBy { it.folderId!! }.eachCount()
+        }
         val preferredId = selectId ?: activeProjectId ?: projectRepository.activeProjectId()
         if (items.none { it.project.id == preferredId }) activeProjectId = items.firstOrNull()?.project?.id
         else activeProjectId = preferredId
@@ -309,6 +324,7 @@ private fun StopMotionApp() {
             }
             ModeDestination.PROJECTS -> screen = AppScreen.GALLERY
             ModeDestination.EFFECTS -> screen = AppScreen.EFFECTS
+            ModeDestination.SETTINGS -> screen = AppScreen.SETTINGS
             ModeDestination.ADVANCED -> screen = AppScreen.EFFECTS
             ModeDestination.SHARE -> shareLatestExportedMovie()
         }
@@ -338,10 +354,11 @@ private fun StopMotionApp() {
     LaunchedEffect(activeProject?.id) {
         val store = frameStore
         if (store == null) { playbackFps = 8; confirmFrameDeletion = true; timelineZoomLevel = 1; return@LaunchedEffect }
-        val settings = withContext(Dispatchers.IO) { Triple(store.playbackFps(), store.deleteConfirmationEnabled(), store.timelineZoomLevel()) }
-        playbackFps = settings.first
-        confirmFrameDeletion = settings.second
-        timelineZoomLevel = settings.third
+        val settings = withContext(Dispatchers.IO) { listOf(store.playbackFps(), if (store.deleteConfirmationEnabled()) 1 else 0, store.timelineZoomLevel(), store.movieRotationDegrees()) }
+        playbackFps = settings[0]
+        confirmFrameDeletion = settings[1] == 1
+        timelineZoomLevel = settings[2]
+        movieRotationDegrees = settings[3]
     }
 
     fun editFrames(block: () -> List<AnimationFrame>, onSuccess: (List<AnimationFrame>) -> Unit = {}) {
@@ -382,9 +399,62 @@ private fun StopMotionApp() {
         }
     }
 
+    fun saveCaptureGroup(
+        imageCapture: ImageCapture,
+        sourceCount: Int,
+        shouldContinue: () -> Boolean,
+        onProgress: (Int) -> Unit,
+        onFinished: (Boolean) -> Unit
+    ) {
+        val store = frameStore ?: run { message = "Choose a movie before taking photos."; onFinished(false); return }
+        persistenceScope.launch {
+            val sources = mutableListOf<java.io.File>()
+            var destination: java.io.File? = null
+            suspend fun captureTo(file: java.io.File): Boolean = suspendCancellableCoroutine { continuation ->
+                val options = ImageCapture.OutputFileOptions.Builder(file).build()
+                runCatching {
+                    imageCapture.takePicture(options, ContextCompat.getMainExecutor(context), object : ImageCapture.OnImageSavedCallback {
+                        override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                            if (continuation.isActive) continuation.resume(true)
+                        }
+                        override fun onError(exception: ImageCaptureException) {
+                            if (continuation.isActive) continuation.resume(false)
+                        }
+                    })
+                }.onFailure { if (continuation.isActive) continuation.resume(false) }
+            }
+            try {
+                val boundedCount = sourceCount.coerceIn(2, 20)
+                repeat(boundedCount) { index ->
+                    if (!shouldContinue()) error("Light-trail capture was stopped")
+                    val source = withContext(Dispatchers.IO) { store.newStagingCapture() }
+                    sources.add(source)
+                    if (!captureTo(source)) error("A light-trail source photo could not be captured")
+                    onProgress(index + 1)
+                    if (index + 1 < boundedCount) delay(180L)
+                }
+                if (!shouldContinue()) error("Light-trail capture was stopped")
+                destination = withContext(Dispatchers.IO) { store.nextFrame() }
+                withContext(Dispatchers.IO) { LightTrailStacker.stack(sources, destination!!) }
+                if (!shouldContinue()) error("Light-trail capture was stopped")
+                withContext(Dispatchers.IO) { store.recordCapturedFrame(destination!!) }
+                refresh++
+                message = null
+                onFinished(true)
+            } catch (failure: Exception) {
+                destination?.delete()
+                if (shouldContinue()) message = failure.message?.takeIf { it != "Light-trail capture was stopped" }
+                    ?: "Light-trail stacking failed. Check storage and try again."
+                onFinished(false)
+            } finally {
+                withContext(Dispatchers.IO) { sources.forEach { it.delete() } }
+            }
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
     if (!projectsReady && screen != AppScreen.HOME) {
-        androidx.compose.material3.CircularProgressIndicator(Modifier.align(Alignment.Center), color = Teal)
+        androidx.compose.material3.CircularProgressIndicator(Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.primary)
     } else when (screen) {
         AppScreen.HOME -> HomeScreen(
             frameCount = snapshot.frames.size,
@@ -410,6 +480,7 @@ private fun StopMotionApp() {
             busy = projectOperationBusy,
             message = projectMessage,
             viewMode = galleryView,
+            automaticPreview = automaticProjectPreview,
             onViewModeChange = { selected ->
                 galleryView = selected
                 context.getSharedPreferences("animation_workshop", Context.MODE_PRIVATE).edit()
@@ -418,10 +489,17 @@ private fun StopMotionApp() {
             onOpen = ::openProject,
             onCreate = { name -> runProjectOperation {
                 val created = withContext(Dispatchers.IO) { projectRepository.create(name, currentFolderId) }
+                withContext(Dispatchers.IO) {
+                    val createdStore = projectRepository.frameStore(created)
+                    createdStore.savePlaybackFps(defaultFps)
+                    createdStore.saveTimelineZoomLevel(defaultZoom)
+                }
                 loadGallery(created.id)
                 withContext(Dispatchers.IO) { projectRepository.setActiveProjectId(created.id) }
                 activeProjectId = created.id
-                playbackFps = 8
+                playbackFps = defaultFps
+                timelineZoomLevel = defaultZoom
+                movieRotationDegrees = 0
                 refresh++
                 activeMode = ModeDestination.CAMERA
                 if (hasCameraPermission) screen = AppScreen.CAMERA else permissionLauncher.launch(Manifest.permission.CAMERA)
@@ -443,6 +521,7 @@ private fun StopMotionApp() {
             } },
             onBack = { autoAdvanceSplash = false; screen = AppScreen.HOME },
             allFolders = allFolders,
+            folderProjectCounts = folderProjectCounts,
             currentFolderId = currentFolderId,
             onOpenFolder = { folder -> currentFolderId = folder.id; runProjectOperation { loadGallery() } },
             onOpenParentFolder = { currentFolderId = allFolders.firstOrNull { it.id == currentFolderId }?.parentId; runProjectOperation { loadGallery() } },
@@ -454,6 +533,14 @@ private fun StopMotionApp() {
             onRenameFolder = { folder, name -> runProjectOperation {
                 withContext(Dispatchers.IO) { projectRepository.renameFolder(folder.id, name) }
                 allFolders = withContext(Dispatchers.IO) { projectRepository.folders() }
+            } },
+            onMoveFolder = { folder, destination -> runProjectOperation {
+                allFolders = withContext(Dispatchers.IO) { projectRepository.moveFolder(folder.id, destination) }
+            } },
+            onDeleteFolder = { folder, moveContents -> runProjectOperation {
+                allFolders = withContext(Dispatchers.IO) { projectRepository.deleteFolder(folder.id, moveContents) }
+                if (currentFolderId == folder.id) currentFolderId = folder.parentId
+                loadGallery()
             } },
             onMoveProjects = { ids, target -> runProjectOperation {
                 withContext(Dispatchers.IO) { projectRepository.moveProjects(ids, target) }
@@ -476,7 +563,8 @@ private fun StopMotionApp() {
                             withContext(Dispatchers.IO) {
                                 val store = projectRepository.frameStore(project)
                                 val frames = store.frames()
-                                Mp4Exporter.export(context, frames, Mp4Exporter.inspect(frames, store.playbackFps()), project.id) { percent ->
+                                val rotation = store.movieRotationDegrees()
+                                Mp4Exporter.export(context, frames, Mp4Exporter.inspect(frames, store.playbackFps(), rotation), project.id, rotation) { percent ->
                                     withContext(Dispatchers.Main) { projectMessage = "Exporting ${index + 1} of ${selected.size}: ${project.name} · $percent%" }
                                 }
                             }
@@ -543,7 +631,8 @@ private fun StopMotionApp() {
                         reviewIndex = snapshot.frames.lastIndex
                         screen = AppScreen.REVIEW
                     },
-                    onCapture = ::saveCapture
+                    onCapture = ::saveCapture,
+                    onCaptureGroup = ::saveCaptureGroup
                 )
             }
         }
@@ -558,6 +647,7 @@ private fun StopMotionApp() {
             fps = playbackFps,
             confirmFrameDeletion = confirmFrameDeletion,
             timelineZoomLevel = timelineZoomLevel,
+            rotationDegrees = movieRotationDegrees,
             settingsMessage = settingsMessage,
             mode = previewMode,
             exportRequest = exportRequest,
@@ -596,6 +686,15 @@ private fun StopMotionApp() {
                 timelineZoomLevel = level.coerceIn(0, 2)
                 persistenceScope.launch { withContext(Dispatchers.IO) { frameStore?.saveTimelineZoomLevel(timelineZoomLevel) } }
             },
+            onRotateMovie = { degrees ->
+                val normalized = ((degrees % 360) + 360) % 360
+                movieRotationDegrees = normalized
+                persistenceScope.launch {
+                    val failure = withContext(Dispatchers.IO) { runCatching { frameStore?.saveMovieRotationDegrees(normalized) }.exceptionOrNull() }
+                    settingsMessage = if (failure == null) null else "Movie rotation could not be saved."
+                    if (failure == null) loadGallery(activeProject?.id)
+                }
+            },
             onDurationChange = { id, duration -> frameStore?.let { store -> editFrames({ store.setDuration(id, duration) }) } },
             onSetAllDurations = { duration -> frameStore?.let { store -> editFrames({ store.setAllDurations(duration) }) } },
             onSplitMovie = { cutIndex, partA, partB ->
@@ -632,6 +731,19 @@ private fun StopMotionApp() {
             onBack = { screen = AppScreen.GALLERY },
             onOpenModes = { modesOpen = true }
         )
+        AppScreen.SETTINGS -> SettingsScreen(
+            themeMode = themeMode,
+            onThemeModeChange = onThemeModeChange,
+            onAutomaticPreviewChange = { automaticProjectPreview = it },
+            onBack = { screen = AppScreen.GALLERY },
+            onOpenModes = { modesOpen = true },
+            onRestoreDeleteWarnings = {
+                runProjectOperation {
+                    withContext(Dispatchers.IO) { projectRepository.restoreAllFrameDeleteConfirmations() }
+                    confirmFrameDeletion = true
+                }
+            }
+        )
     }
 
     ModesWheel(visible = modesOpen, active = activeMode, onDismiss = { modesOpen = false }, onSelect = ::navigateToMode)
@@ -655,7 +767,7 @@ private fun StopMotionApp() {
 
 }
 
-private enum class AppScreen { HOME, GALLERY, CAMERA, TIMELAPSE_SETUP, TIMELAPSE, PREVIEW, REVIEW, EFFECTS }
+private enum class AppScreen { HOME, GALLERY, CAMERA, TIMELAPSE_SETUP, TIMELAPSE, PREVIEW, REVIEW, EFFECTS, SETTINGS }
 
 private fun findLatestExportedMovieUri(context: Context): Uri? {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
@@ -760,7 +872,7 @@ private fun HomeScreen(
             if (latestBitmap != null) {
                 Image(bitmap = latestBitmap.asImageBitmap(), contentDescription = "Latest animation photograph", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             } else {
-                Text("📷\nNo frames yet", color = Ink, fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Text("📷\nNo frames yet", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             }
         }
 
@@ -778,7 +890,7 @@ private fun HomeScreen(
 
         if (permissionDenied) {
             Text(
-                "Camera permission is needed to take pictures.", color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                "Camera permission is needed to take pictures.", color = MaterialTheme.colorScheme.onBackground, fontSize = 11.sp, fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xEEFFFDF5)).padding(horizontal = 12.dp, vertical = 6.dp)
             )
@@ -788,12 +900,12 @@ private fun HomeScreen(
 
 @Composable
 private fun PermissionScreen(onRequest: () -> Unit, onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().background(Cream).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text("📷", fontSize = 58.sp)
-        Text("Let’s use the camera", color = Ink, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
-        Text("We need camera access so you can take your movie frames.", color = Ink, fontSize = 16.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 16.dp))
-        Button(onClick = onRequest, colors = ButtonDefaults.buttonColors(containerColor = Teal)) { Text("Allow camera") }
-        Text("Go back", color = Teal, modifier = Modifier.clickable(onClick = onBack).padding(16.dp))
+        Text("Let’s use the camera", color = MaterialTheme.colorScheme.onBackground, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
+        Text("We need camera access so you can take your movie frames.", color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 16.dp))
+        Button(onClick = onRequest, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("Allow camera") }
+        Text("Go back", color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable(onClick = onBack).padding(16.dp))
     }
 }
 
@@ -805,11 +917,11 @@ private fun EffectsPlaceholderScreen(onBack: () -> Unit, onOpenModes: () -> Unit
         verticalArrangement = Arrangement.Center
     ) {
         Text("✨", fontSize = 54.sp)
-        Text("Effects / 特效", color = Ink, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 12.dp))
-        Text("Coming Soon! / 即將推出！", color = Teal, fontSize = 21.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+        Text("Effects / 特效", color = MaterialTheme.colorScheme.onBackground, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 12.dp))
+        Text("Coming Soon! / 即將推出！", color = MaterialTheme.colorScheme.primary, fontSize = 21.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
         Row(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = onBack, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Teal)) { Text("Projects / 專案") }
-            Button(onClick = onOpenModes, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Coral)) { Text("MODES") }
+            Button(onClick = onBack, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("Projects / 專案") }
+            Button(onClick = onOpenModes, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("MODES") }
         }
     }
 }
@@ -827,7 +939,8 @@ private fun CameraScreen(
     onTimelapseFinished: () -> Unit,
     onOpenPreview: () -> Unit,
     onReview: () -> Unit,
-    onCapture: (ImageCapture, (Boolean) -> Unit) -> Unit
+    onCapture: (ImageCapture, (Boolean) -> Unit) -> Unit,
+    onCaptureGroup: (ImageCapture, Int, () -> Boolean, (Int) -> Unit, (Boolean) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = context as LifecycleOwner
@@ -841,6 +954,7 @@ private fun CameraScreen(
     var activeSegmentStart by remember(timelapseConfig) { mutableStateOf(SystemClock.elapsedRealtime()) }
     var elapsedDisplay by remember(timelapseConfig) { mutableStateOf(0L) }
     var hasTakenFirstFrame by remember(timelapseConfig) { mutableStateOf(false) }
+    var timelapseProgress by remember(timelapseConfig) { mutableStateOf<String?>(null) }
     var showLeaveWarning by remember { mutableStateOf(false) }
     var leaveToManual by remember { mutableStateOf(false) }
     val view = LocalView.current
@@ -938,14 +1052,29 @@ private fun CameraScreen(
             val currentCapture = imageCapture ?: break
             if (capturePending) { delay(25); continue }
             capturePending = true
-            val succeeded = suspendCancellableCoroutine<Boolean> { continuation ->
+            val succeeded = if (config.stackSourceCount > 1) {
+                timelapseProgress = "Preparing light-trail frame…"
+                suspendCancellableCoroutine<Boolean> { continuation ->
+                    onCaptureGroup(currentCapture, config.stackSourceCount, { timelapseStatus == TimelapseStatus.RECORDING }, { completed ->
+                        timelapseProgress = "Light trails · source $completed of ${config.stackSourceCount}"
+                    }) { result ->
+                        timelapseProgress = null
+                        capturePending = false
+                        if (continuation.isActive) continuation.resume(result)
+                    }
+                    continuation.invokeOnCancellation { capturePending = false }
+                }
+            } else suspendCancellableCoroutine { continuation ->
                 onCapture(currentCapture) { result ->
                     capturePending = false
                     if (continuation.isActive) continuation.resume(result)
                 }
                 continuation.invokeOnCancellation { capturePending = false }
             }
-            if (!succeeded) { finishTimelapse(); break }
+            if (!succeeded) {
+                if (timelapseStatus == TimelapseStatus.PAUSED) continue
+                finishTimelapse(); break
+            }
             timelapseCaptured++
             hasTakenFirstFrame = true
             nextCaptureAt += intervalMillis
@@ -975,7 +1104,26 @@ private fun CameraScreen(
                     .setTargetRotation(previewView.display?.rotation ?: android.view.Surface.ROTATION_0)
                     .build()
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, captureUseCase)
+                val boundCamera = cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, captureUseCase)
+                if (timelapseConfig?.manualExposureEnabled == true) {
+                    val exposure = timelapseConfig!!
+                    val camera2Control = Camera2CameraControl.from(boundCamera.cameraControl)
+                    val options = CaptureRequestOptions.Builder()
+                        .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+                        .setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, exposure.exposureTimeNanos)
+                        .setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, exposure.iso)
+                        .build()
+                    val exposureApply = camera2Control.setCaptureRequestOptions(options)
+                    exposureApply.addListener({
+                        try {
+                            exposureApply.get()
+                            cameraError = null
+                        } catch (_: Exception) {
+                            camera2Control.clearCaptureRequestOptions()
+                            cameraError = "Manual exposure is unavailable on this camera session. Automatic exposure will be used."
+                        }
+                    }, ContextCompat.getMainExecutor(context))
+                }
                 imageCapture = captureUseCase
                 cameraError = null
             } catch (_: Exception) {
@@ -992,15 +1140,15 @@ private fun CameraScreen(
     Column(Modifier.fillMaxSize().background(Color(0xFF182522)).windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 16.dp, vertical = 8.dp).padding(bottom = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.fillMaxWidth().height(44.dp)) {
             Text("‹  Back", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.align(Alignment.CenterStart).clickable(onClick = ::requestBack).padding(8.dp))
-            Text("MODES", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(16.dp)).background(Teal).clickable(onClick = onOpenModes).padding(horizontal = 17.dp, vertical = 9.dp))
+            Text("MODES", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.primary).clickable(onClick = onOpenModes).padding(horizontal = 17.dp, vertical = 9.dp))
             Text(if (timelapseConfig == null) "FRAME ${frameCount + 1}" else "TIMELAPSE", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.CenterEnd))
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
             if (timelapseConfig == null) {
                 Text("Preview ▶", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable(onClick = onOpenPreview).padding(horizontal = 14.dp, vertical = 5.dp))
-                Text("Timelapse ⏱", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(Teal).clickable(onClick = onOpenTimelapseSetup).padding(horizontal = 11.dp, vertical = 6.dp))
+                Text("Timelapse ⏱", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primary).clickable(onClick = onOpenTimelapseSetup).padding(horizontal = 11.dp, vertical = 6.dp))
             } else {
-                Text("Manual camera", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(Teal).clickable(onClick = { requestBack(toManual = true) }).padding(horizontal = 12.dp, vertical = 6.dp))
+                Text("Manual camera", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primary).clickable(onClick = { requestBack(toManual = true) }).padding(horizontal = 12.dp, vertical = 6.dp))
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -1017,14 +1165,16 @@ private fun CameraScreen(
                 TimelapseStopCondition.CLOCK_TIME -> "${formatTimelapseTime((config.stopAtMillis - System.currentTimeMillis()).coerceAtLeast(0L))} until stop time"
             }
             Text(when (timelapseStatus) { TimelapseStatus.RECORDING -> "● Recording"; TimelapseStatus.PAUSED -> "Ⅱ Paused"; TimelapseStatus.FINISHED -> "✓ Finished" }, color = if (timelapseStatus == TimelapseStatus.RECORDING) Color(0xFFFF8A80) else Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-            Text("$timelapseCaptured photos  ·  ${formatTimelapseTime(elapsedDisplay)} elapsed", color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 3.dp))
+            Text("$timelapseCaptured movie frames  ·  ${formatTimelapseTime(elapsedDisplay)} elapsed", color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 3.dp))
+            if (config.stackSourceCount > 1) Text("${timelapseCaptured * config.stackSourceCount} source photos captured", color = Color.White.copy(alpha = .8f), fontSize = 12.sp)
+            timelapseProgress?.let { Text(it, color = Color(0xFFFFD3CC), fontSize = 13.sp) }
             if (message != null) Text(message, color = Color(0xFFFFD3CC), fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 3.dp))
             if (timelapseStatus != TimelapseStatus.FINISHED) Text(remaining, color = Color.White.copy(alpha = .8f), fontSize = 13.sp)
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (timelapseStatus == TimelapseStatus.RECORDING) Button(onClick = { activeElapsedMillis += SystemClock.elapsedRealtime() - activeSegmentStart; elapsedDisplay = activeElapsedMillis; timelapseStatus = TimelapseStatus.PAUSED }, modifier = Modifier.weight(1f).height(54.dp), colors = ButtonDefaults.buttonColors(containerColor = Teal)) { Text("Pause Ⅱ") }
-                if (timelapseStatus == TimelapseStatus.PAUSED) Button(onClick = { activeSegmentStart = SystemClock.elapsedRealtime(); timelapseStatus = TimelapseStatus.RECORDING }, modifier = Modifier.weight(1f).height(54.dp), colors = ButtonDefaults.buttonColors(containerColor = Teal)) { Text("Resume ▶") }
-                if (timelapseStatus != TimelapseStatus.FINISHED) Button(onClick = ::finishTimelapse, modifier = Modifier.weight(1f).height(54.dp), colors = ButtonDefaults.buttonColors(containerColor = Coral)) { Text("STOP", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
-                if (timelapseStatus == TimelapseStatus.FINISHED) Button(onClick = onTimelapseFinished, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Teal)) { Text("Back to camera") }
+                if (timelapseStatus == TimelapseStatus.RECORDING) Button(onClick = { activeElapsedMillis += SystemClock.elapsedRealtime() - activeSegmentStart; elapsedDisplay = activeElapsedMillis; timelapseStatus = TimelapseStatus.PAUSED }, modifier = Modifier.weight(1f).height(54.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("Pause Ⅱ") }
+                if (timelapseStatus == TimelapseStatus.PAUSED) Button(onClick = { activeSegmentStart = SystemClock.elapsedRealtime(); timelapseStatus = TimelapseStatus.RECORDING }, modifier = Modifier.weight(1f).height(54.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("Resume ▶") }
+                if (timelapseStatus != TimelapseStatus.FINISHED) Button(onClick = ::finishTimelapse, modifier = Modifier.weight(1f).height(54.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("STOP", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+                if (timelapseStatus == TimelapseStatus.FINISHED) Button(onClick = onTimelapseFinished, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("Back to camera") }
             }
         } else if (message != null) Text(message, color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
         else Text(cameraError ?: "Move a little, then take a picture!", color = Color.White.copy(alpha = .85f), fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))
@@ -1037,7 +1187,7 @@ private fun CameraScreen(
                 }
             }
             Box(
-                Modifier.size(88.dp).clip(CircleShape).background(Color.White).padding(5.dp).clip(CircleShape).background(Coral).clickable(enabled = imageCapture != null && !capturePending) {
+                Modifier.size(88.dp).clip(CircleShape).background(Color.White).padding(5.dp).clip(CircleShape).background(MaterialTheme.colorScheme.error).clickable(enabled = imageCapture != null && !capturePending) {
                     imageCapture?.let { capture ->
                         capturePending = true
                         onCapture(capture) { capturePending = false }
@@ -1098,14 +1248,14 @@ private fun ReviewScreen(image: Bitmap?, frameNumber: Int, frameCount: Int, onOp
             Spacer(Modifier.weight(1f))
             Text("Your photo", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
-            Text("MODES", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(Teal).clickable(onClick = onOpenModes).padding(horizontal = 8.dp, vertical = 8.dp))
+            Text("MODES", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primary).clickable(onClick = onOpenModes).padding(horizontal = 8.dp, vertical = 8.dp))
         }
         Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = 16.dp).clip(RoundedCornerShape(20.dp)).background(Color.Black), contentAlignment = Alignment.Center) {
             if (image != null) BitmapImage(image, Modifier.fillMaxSize(), androidx.compose.ui.layout.ContentScale.Fit)
             else Text("Photo is loading…", color = Color.White)
         }
         Text("Frame $frameNumber of $frameCount", color = Color.White.copy(alpha = .8f), fontSize = 15.sp, modifier = Modifier.padding(bottom = 12.dp))
-        Button(onClick = onOpenCamera, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Teal)) {
+        Button(onClick = onOpenCamera, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
             Text("Back to camera  📷", fontSize = 17.sp, fontWeight = FontWeight.Bold)
         }
     }

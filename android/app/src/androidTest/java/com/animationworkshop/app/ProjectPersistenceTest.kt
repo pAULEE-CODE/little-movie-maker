@@ -76,6 +76,14 @@ class ProjectPersistenceTest {
         assertEquals(listOf(inner.id), ProjectRepository(context).folders(outer.id).map { it.id })
         ProjectRepository(context).renameFolder(inner.id, "October Films")
         assertEquals("October Films", ProjectRepository(context).folders(outer.id).single().name)
+
+        val repositoryAgain = ProjectRepository(context)
+        repositoryAgain.moveFolder(inner.id, null)
+        assertEquals(null, repositoryAgain.folders().first { it.id == inner.id }.parentId)
+        repositoryAgain.moveProjects(setOf(project.id), inner.id)
+        repositoryAgain.deleteFolder(inner.id, moveContentsToParent = true)
+        assertEquals(null, repositoryAgain.projects().first { it.id == project.id }.folderId)
+        assertTrue(repositoryAgain.folders().none { it.id == inner.id })
     }
 
     @Test
@@ -86,11 +94,13 @@ class ProjectPersistenceTest {
         captureTestFrames(sourceStore, 3)
         sourceStore.setDuration(sourceStore.frames()[1].id, 3)
         sourceStore.savePlaybackFps(12)
+        sourceStore.saveMovieRotationDegrees(90)
 
         val (partA, partB) = repository.splitProject(source.id, 2, "Part A", "Part B")
         assertEquals(3, repository.frameStore(source).frames().size)
         assertEquals(listOf(1, 3), repository.frameStore(partA).frames().map { it.duration })
         assertEquals(12, repository.frameStore(partA).playbackFps())
+        assertEquals(90, repository.frameStore(partA).movieRotationDegrees())
         assertEquals(1, repository.frameStore(partB).frames().size)
 
         val merged = repository.mergeProjects(listOf(partB.id, partA.id), "Reordered", 8)
@@ -98,6 +108,7 @@ class ProjectPersistenceTest {
         assertEquals(3, mergedFrames.size)
         assertNotEquals(repository.frameStore(partA).frames().first().id, mergedFrames.last().id)
         assertEquals(8, repository.frameStore(merged).playbackFps())
+        assertEquals(90, repository.frameStore(merged).movieRotationDegrees())
     }
 
     @Test

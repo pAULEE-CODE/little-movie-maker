@@ -55,8 +55,11 @@ internal object Mp4Exporter {
     private const val BIT_RATE = 5_000_000
     private const val TIMEOUT_US = 10_000L
 
-    fun inspect(frames: List<AnimationFrame>, fps: Int): ExportConfiguration {
-        val portrait = frames.asSequence().mapNotNull(::orientedDimensions).firstOrNull()?.let { it.first < it.second } ?: false
+    fun inspect(frames: List<AnimationFrame>, fps: Int, rotationDegrees: Int = 0): ExportConfiguration {
+        val portrait = frames.asSequence().mapNotNull(::orientedDimensions).firstOrNull()?.let { dimensions ->
+            val rotated = rotationDegrees.mod(180) == 90
+            if (rotated) dimensions.first >= dimensions.second else dimensions.first < dimensions.second
+        } ?: false
         val width = if (portrait) 720 else 1280
         val height = if (portrait) 1280 else 720
         val projectFps = fps.coerceIn(1, 24)
@@ -69,6 +72,7 @@ internal object Mp4Exporter {
         frames: List<AnimationFrame>,
         configuration: ExportConfiguration,
         projectId: String? = null,
+        rotationDegrees: Int = 0,
         onProgress: suspend (Int) -> Unit
     ): ExportedMovie {
         require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -214,9 +218,12 @@ internal object Mp4Exporter {
                     sourceIndex++
                 }
                 if (cachedSourceIndex != sourceIndex) {
-                    val source = decodeSampledFrame(frames[sourceIndex].file, configuration.width, configuration.height)
+                    val decoded = decodeSampledFrame(frames[sourceIndex].file, configuration.width, configuration.height)
                         ?: error("Frame ${sourceIndex + 1} could not be read. Check that the photograph is still available.")
+                    val source = rotateMovieFrame(decoded, rotationDegrees)
+                    if (source !== decoded) decoded.recycle()
                     val fitted = fitToOutput(source, configuration.width, configuration.height)
+                    if (fitted !== source) source.recycle()
                     yuvFrame = bitmapToYuv420(fitted, pixelScratch)
                     fitted.recycle()
                     cachedSourceIndex = sourceIndex
@@ -516,6 +523,14 @@ internal object Mp4Exporter {
         )
         canvas.drawBitmap(source, null, destination, Paint(Paint.FILTER_BITMAP_FLAG))
         return output
+    }
+
+    private fun rotateMovieFrame(source: Bitmap, rotationDegrees: Int): Bitmap {
+        val normalized = ((rotationDegrees % 360) + 360) % 360
+        if (normalized == 0) return source
+        require(normalized % 90 == 0) { "Movie rotation must use 90-degree steps" }
+        val matrix = android.graphics.Matrix().apply { postRotate(normalized.toFloat()) }
+        return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
     }
 
     private fun orientedDimensions(frame: AnimationFrame): Pair<Int, Int>? {

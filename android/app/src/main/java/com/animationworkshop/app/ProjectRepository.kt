@@ -75,6 +75,65 @@ internal class ProjectRepository(context: Context) {
     }
 
     @Synchronized
+    fun moveFolder(id: String, destinationParentId: String?): List<AnimationFolder> {
+        val current = readFolders()
+        val moving = current.firstOrNull { it.id == id } ?: error("The selected folder is no longer available")
+        require(destinationParentId == null || current.any { it.id == destinationParentId }) { "The destination folder is no longer available" }
+        val descendants = mutableSetOf<String>()
+        var frontier = setOf(id)
+        while (frontier.isNotEmpty()) {
+            val children = current.filter { it.parentId in frontier }.map { it.id }.toSet()
+            if (children.isEmpty()) break
+            descendants += children
+            frontier = children
+        }
+        require(destinationParentId != id && destinationParentId !in descendants) { "A folder cannot be moved inside itself" }
+        require(current.none { it.id != id && it.parentId == destinationParentId && it.name.equals(moving.name, ignoreCase = true) }) {
+            "A folder with that name already exists at the destination"
+        }
+        val updated = current.map { if (it.id == id) it.copy(parentId = destinationParentId) else it }
+        writeFolders(updated)
+        return updated
+    }
+
+    /** Deletes only the folder record. Contents are atomically reparented in the app's metadata first. */
+    @Synchronized
+    fun deleteFolder(id: String, moveContentsToParent: Boolean): List<AnimationFolder> {
+        val current = readFolders()
+        val target = current.firstOrNull { it.id == id } ?: error("The selected folder is no longer available")
+        val children = current.filter { it.parentId == id }
+        val projects = readProjects()
+        val containedProjects = projects.filter { it.folderId == id }
+        require(moveContentsToParent || children.isEmpty() && containedProjects.isEmpty()) {
+            "Choose to move this folder's contents to its parent before deleting it"
+        }
+        val reparentedFolders = if (moveContentsToParent && children.isNotEmpty()) {
+            current.map { if (it.parentId == id) it.copy(parentId = target.parentId) else it }
+        } else current
+        if (moveContentsToParent && children.isNotEmpty()) {
+            require(reparentedFolders.filter { it.parentId == target.parentId }.groupBy { it.name.lowercase() }.values.all { it.size == 1 }) {
+                "A child folder has the same name as one in the parent folder. Rename it before deleting this folder."
+            }
+        }
+        if (moveContentsToParent) {
+            if (containedProjects.isNotEmpty()) {
+                writeCatalog(projects.map { if (it.folderId == id) it.copy(folderId = target.parentId) else it })
+            }
+            if (children.isNotEmpty()) {
+                writeFolders(reparentedFolders)
+            }
+        }
+        val updated = readFolders().filterNot { it.id == id }
+        writeFolders(updated)
+        return updated
+    }
+
+    @Synchronized
+    fun restoreAllFrameDeleteConfirmations() {
+        readProjects().forEach { frameStore(it).saveDeleteConfirmationEnabled(true) }
+    }
+
+    @Synchronized
     fun moveProjects(projectIds: Set<String>, destinationFolderId: String?): List<AnimationProject> {
         val all = readProjects()
         require(destinationFolderId == null || readFolders().any { it.id == destinationFolderId }) { "The destination folder is no longer available" }
@@ -192,12 +251,13 @@ internal class ProjectRepository(context: Context) {
     @Synchronized
     fun splitProject(id: String, cutIndex: Int, firstName: String, secondName: String): Pair<AnimationProject, AnimationProject> {
         val source = requireProject(id)
-        val frames = frameStore(source).frames()
+        val sourceStore = frameStore(source)
+        val frames = sourceStore.frames()
         val (firstFrames, secondFrames) = FrameSequenceOperations.split(frames, cutIndex)
         val saved = createFromSequences(
             listOf(
-                SequenceProject(firstName, firstFrames, frameStore(source).playbackFps(), source.folderId),
-                SequenceProject(secondName, secondFrames, frameStore(source).playbackFps(), source.folderId)
+                SequenceProject(firstName, firstFrames, sourceStore.playbackFps(), source.folderId, sourceStore.movieRotationDegrees()),
+                SequenceProject(secondName, secondFrames, sourceStore.playbackFps(), source.folderId, sourceStore.movieRotationDegrees())
             )
         )
         return saved[0] to saved[1]
@@ -210,10 +270,11 @@ internal class ProjectRepository(context: Context) {
         val all = readProjects().associateBy { it.id }
         val selected = idsInOrder.map { all[it] ?: error("A selected movie is no longer available") }
         val mergedFrames = selected.flatMap { frameStore(it).frames() }
-        return createFromSequences(listOf(SequenceProject(name, mergedFrames, fps, folderId))).single()
+        val rotation = selected.firstOrNull()?.let { frameStore(it).movieRotationDegrees() } ?: 0
+        return createFromSequences(listOf(SequenceProject(name, mergedFrames, fps, folderId, rotation))).single()
     }
 
-    private data class SequenceProject(val name: String, val frames: List<AnimationFrame>, val fps: Int, val folderId: String?)
+    private data class SequenceProject(val name: String, val frames: List<AnimationFrame>, val fps: Int, val folderId: String?, val rotationDegrees: Int)
 
     /** Copies every source photo into staging first and publishes the complete operation in one catalog write. */
     private fun createFromSequences(sequences: List<SequenceProject>): List<AnimationProject> {
@@ -228,7 +289,7 @@ internal class ProjectRepository(context: Context) {
                 val stage = File(projectsFolder, ".stage-$id")
                 val target = File(projectsFolder, id)
                 check(stage.mkdirs()) { "Could not prepare a new movie" }
-                FrameStore(stage).initializeFromFrames(sequence.frames, sequence.fps)
+                FrameStore(stage).initializeFromFrames(sequence.frames, sequence.fps, sequence.rotationDegrees)
                 val project = AnimationProject(id, normalizedName(sequence.name), target, System.currentTimeMillis(), sequence.folderId)
                 writeProject(project.copy(folder = stage))
                 staged += project

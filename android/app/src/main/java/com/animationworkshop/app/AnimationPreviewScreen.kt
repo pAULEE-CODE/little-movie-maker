@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
@@ -30,15 +31,20 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -57,6 +63,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -77,9 +84,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private val PreviewBackground = Color(0xFF182522)
-private val PreviewTeal = Color(0xFF31A996)
-private val PreviewCoral = Color(0xFFFF5B59)
 
 private sealed interface MovieExportState {
     data object Idle : MovieExportState
@@ -99,6 +103,7 @@ internal fun AnimationPreviewScreen(
     fps: Int,
     confirmFrameDeletion: Boolean,
     timelineZoomLevel: Int,
+    rotationDegrees: Int,
     settingsMessage: String?,
     mode: ModeDestination,
     exportRequest: Int,
@@ -113,6 +118,7 @@ internal fun AnimationPreviewScreen(
     onDeleteFrames: (Set<String>) -> Unit,
     onSaveDeleteConfirmation: (Boolean) -> Unit,
     onSaveTimelineZoom: (Int) -> Unit,
+    onRotateMovie: (Int) -> Unit,
     onDurationChange: (String, Int) -> Unit,
     onSetAllDurations: (Int) -> Unit,
     onSplitMovie: (Int, String, String) -> Unit,
@@ -142,6 +148,8 @@ internal fun AnimationPreviewScreen(
     val context = LocalContext.current
     val exportScope = androidx.compose.runtime.rememberCoroutineScope()
     var showExportConfirmation by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
+    var showEditorTools by remember { mutableStateOf(false) }
     var exportState by remember { mutableStateOf<MovieExportState>(MovieExportState.Idle) }
     var exportJob by remember { mutableStateOf<Job?>(null) }
 
@@ -205,13 +213,13 @@ internal fun AnimationPreviewScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().background(PreviewBackground).windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 16.dp, vertical = 6.dp).padding(bottom = 48.dp),
+        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 14.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(Modifier.fillMaxWidth().height(48.dp)) {
             Text(
                 "‹  Camera",
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onBackground,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.align(Alignment.CenterStart).clip(RoundedCornerShape(16.dp)).clickable(onClick = onBackToCamera).padding(horizontal = 10.dp, vertical = 8.dp)
@@ -220,7 +228,7 @@ internal fun AnimationPreviewScreen(
                 onClick = onOpenModes,
                 modifier = Modifier.align(Alignment.Center).height(42.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 30.dp, vertical = 7.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PreviewTeal)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) { Text("MODES", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold) }
         }
 
@@ -243,21 +251,22 @@ internal fun AnimationPreviewScreen(
                     contentDescription = "Frame ${selectedIndex + 1}",
                     modifier = Modifier.fillMaxSize().padding(8.dp),
                     contentScale = ContentScale.Fit,
-                    maximumDimensionPx = 1024
+                    maximumDimensionPx = 1024,
+                    rotationDegrees = rotationDegrees
                 )
             }
         }
 
         Text(
             if (frameCount == 0) "Frame 0 of 0" else "Frame ${selectedIndex + 1} of $frameCount   ·   ×${selectedFrame?.duration ?: 1}",
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onBackground,
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(bottom = 8.dp)
         )
         if (frameCount > 0) {
             val movieSeconds = frames.sumOf { it.duration.coerceIn(1, 10) } / fps.coerceIn(1, 24).toDouble()
-            Text("Movie length: ${String.format(Locale.US, "%.1f", movieSeconds)} seconds", color = Color.White.copy(alpha = .75f), fontSize = 13.sp, modifier = Modifier.padding(bottom = 4.dp))
+            Text("Movie length: ${String.format(Locale.US, "%.1f", movieSeconds)} seconds", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .75f), fontSize = 13.sp, modifier = Modifier.padding(bottom = 4.dp))
         }
 
         Row(
@@ -272,14 +281,14 @@ internal fun AnimationPreviewScreen(
                 },
                 modifier = Modifier.weight(1f),
                 enabled = frameCount > 0 && selectedIndex > 0,
-                colors = ButtonDefaults.buttonColors(containerColor = PreviewTeal)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) { Text("‹ Previous", maxLines = 1) }
 
             Button(
                 onClick = { isPlaying = !isPlaying },
                 modifier = Modifier.weight(1f),
                 enabled = frameCount > 1,
-                colors = ButtonDefaults.buttonColors(containerColor = PreviewCoral)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
             ) { Text(if (isPlaying) "Pause Ⅱ" else "Play ▶", maxLines = 1, fontWeight = FontWeight.Bold) }
 
             Button(
@@ -289,29 +298,12 @@ internal fun AnimationPreviewScreen(
                 },
                 modifier = Modifier.weight(1f),
                 enabled = frameCount > 0 && selectedIndex < frameCount - 1,
-                colors = ButtonDefaults.buttonColors(containerColor = PreviewTeal)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) { Text("Next ›", maxLines = 1) }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Speed", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(12.dp))
-            Slider(
-                value = fps.coerceIn(1, 24).toFloat(),
-                onValueChange = { onFpsChange(it.roundToInt().coerceIn(1, 24)) },
-                onValueChangeFinished = { onSaveFps(fps.coerceIn(1, 24)) },
-                valueRange = 1f..24f,
-                steps = 22,
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(Modifier.width(8.dp))
-            Text("$fps FPS", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-        }
         if (settingsMessage != null) {
-            Text(settingsMessage, color = Color(0xFFFFD3CC), fontSize = 12.sp, modifier = Modifier.padding(bottom = 2.dp))
+            Text(settingsMessage, color = MaterialTheme.colorScheme.error, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(bottom = 2.dp))
         }
 
         if (frameCount == 0) {
@@ -321,7 +313,7 @@ internal fun AnimationPreviewScreen(
         } else {
             LazyRow(
                 state = listState,
-                modifier = Modifier.fillMaxWidth().height(if (selectionMode) 142.dp else 112.dp)
+                modifier = Modifier.fillMaxWidth().height(when (timelineZoomLevel.coerceIn(0, 2)) { 0 -> 86.dp; 2 -> 142.dp; else -> 112.dp })
                     .pointerInput(selectionMode, rangeSelectionMode, frames) {
                         if (selectionMode && rangeSelectionMode) {
                             detectDragGestures(
@@ -353,6 +345,7 @@ internal fun AnimationPreviewScreen(
                         selected = index == selectedIndex,
                         multiSelected = frame.id in selectedIds,
                         width = when (timelineZoomLevel.coerceIn(0, 2)) { 0 -> 64.dp; 2 -> 128.dp; else -> 92.dp },
+                        rotationDegrees = rotationDegrees,
                         onClick = {
                             isPlaying = false
                             if (selectionMode) {
@@ -376,20 +369,27 @@ internal fun AnimationPreviewScreen(
         }
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Timeline", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text(if (selectionMode) "${selectedIds.size} selected" else "Timeline", color = MaterialTheme.colorScheme.onBackground, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { onSaveTimelineZoom((timelineZoomLevel - 1).coerceAtLeast(0)) }, enabled = timelineZoomLevel > 0) { Text("− Zoom") }
-                Text("${timelineZoomLevel + 1}/3", color = Color.White.copy(alpha = .8f), fontSize = 12.sp)
+                Text("${timelineZoomLevel + 1}/3", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .8f), fontSize = 12.sp)
                 TextButton(onClick = { onSaveTimelineZoom((timelineZoomLevel + 1).coerceAtMost(2)) }, enabled = timelineZoomLevel < 2) { Text("+ Zoom") }
+                Box {
+                    TextButton(onClick = { showMoreMenu = true }) { Text("More / 更多") }
+                    DropdownMenu(expanded = showMoreMenu, onDismissRequest = { showMoreMenu = false }) {
+                        DropdownMenuItem(text = { Text("Editor tools / 編輯工具") }, onClick = { showMoreMenu = false; showEditorTools = true })
+                        DropdownMenuItem(text = { Text("Export Movie / 匯出影片") }, enabled = frameCount > 0, onClick = { showMoreMenu = false; showExportConfirmation = true })
+                    }
+                }
             }
         }
 
         if (selectionMode) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("${selectedIds.size} selected", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                TextButton(onClick = { rangeSelectionMode = !rangeSelectionMode }) { Text(if (rangeSelectionMode) "Scroll" else "Select range") }
+                Text("Select", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                TextButton(onClick = { rangeSelectionMode = !rangeSelectionMode }) { Text(if (rangeSelectionMode) "Scroll" else "Range") }
                 TextButton(onClick = { selectionMode = false; rangeSelectionMode = false; selectedIds.clear() }) { Text("Done") }
-                Button(onClick = { requestDelete(selectedIds.toSet()) }, enabled = selectedIds.isNotEmpty(), colors = ButtonDefaults.buttonColors(containerColor = PreviewCoral)) { Text("Delete selected") }
+                Button(onClick = { requestDelete(selectedIds.toSet()) }, enabled = selectedIds.isNotEmpty(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 5.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Delete") }
             }
         }
 
@@ -399,47 +399,47 @@ internal fun AnimationPreviewScreen(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Button(onClick = { onMoveFrame(selectedFrame.id, -1) }, enabled = selectedIndex > 0, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("← Move", maxLines = 1) }
-            Button(onClick = { onMoveFrame(selectedFrame.id, 1) }, enabled = selectedIndex < frameCount - 1, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("Move →", maxLines = 1) }
             Button(onClick = { onDuplicateFrame(selectedFrame.id) { duplicateId -> if (duplicateId != null) selectedId = duplicateId } }, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("Copy", maxLines = 1) }
-            Button(onClick = { isPlaying = false; requestDelete(setOf(selectedFrame.id)) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = PreviewCoral), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("Delete", maxLines = 1) }
-        }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Hold", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(8.dp))
-            Button(onClick = { onDurationChange(selectedFrame.id, selectedFrame.duration - 1) }, enabled = selectedFrame.duration > 1, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text("−") }
-            Text("×${selectedFrame.duration}", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 12.dp))
-            Button(onClick = { onDurationChange(selectedFrame.id, selectedFrame.duration + 1) }, enabled = selectedFrame.duration < 10, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp)) { Text("+") }
-            Spacer(Modifier.width(8.dp))
-            Text("frames", color = Color.White.copy(alpha = .75f), fontSize = 13.sp)
-        }
-        if (frameCount > 1) {
-            TextButton(onClick = { splitCutIndex = (selectedIndex + 1).coerceIn(1, frameCount - 1); showSplitDialog = true }, modifier = Modifier.align(Alignment.Start)) {
-                Text("Split Movie / 分割影片")
-            }
-        }
-        Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("All frames", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            Button(onClick = { allDuration = (allDuration - 1).coerceAtLeast(1) }, enabled = allDuration > 1, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 3.dp)) { Text("−") }
-            Text("×$allDuration", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Button(onClick = { allDuration = (allDuration + 1).coerceAtMost(10) }, enabled = allDuration < 10, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 3.dp)) { Text("+") }
-            Button(onClick = { confirmApplyAll = true }, enabled = frameCount > 0, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 6.dp)) { Text("Apply to all", maxLines = 1) }
+            Button(onClick = { isPlaying = false; requestDelete(setOf(selectedFrame.id)) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("Delete", maxLines = 1) }
         }
     }
 
     if (!confirmFrameDeletion) {
         TextButton(onClick = { onSaveDeleteConfirmation(true) }, modifier = Modifier.align(Alignment.Start)) { Text("Turn delete confirmation on") }
     }
-    Button(
-        onClick = { showExportConfirmation = true },
-        enabled = frameCount > 0 && exportState !is MovieExportState.Running,
-        modifier = Modifier.fillMaxWidth().padding(top = 6.dp).height(54.dp),
-        shape = RoundedCornerShape(18.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = PreviewCoral),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp, vertical = 8.dp)
-    ) {
-        Text("🎞  Export Movie", fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-    }
+    if (showEditorTools) AlertDialog(
+        onDismissRequest = { showEditorTools = false },
+        title = { Text("More tools / 更多工具") },
+        text = {
+            Column(modifier = Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Speed · $fps FPS", fontWeight = FontWeight.Bold)
+                Slider(value = fps.coerceIn(1,24).toFloat(), onValueChange = { onFpsChange(it.roundToInt().coerceIn(1,24)) }, onValueChangeFinished = { onSaveFps(fps.coerceIn(1,24)) }, valueRange = 1f..24f, steps = 22)
+                Text("Rotate movie · ${rotationDegrees}°", fontWeight = FontWeight.Bold)
+                Button(onClick = { onRotateMovie((rotationDegrees + 270) % 360) }, modifier = Modifier.fillMaxWidth()) { Text("Rotate Anticlockwise 90° / 逆時針旋轉90度") }
+                if (selectedFrame != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Move frame", modifier = Modifier.weight(1f))
+                        TextButton(onClick = { onMoveFrame(selectedFrame.id, -1) }, enabled = selectedIndex > 0) { Text("←") }
+                        TextButton(onClick = { onMoveFrame(selectedFrame.id, 1) }, enabled = selectedIndex < frameCount - 1) { Text("→") }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Selected hold · ×${selectedFrame.duration}", modifier = Modifier.weight(1f))
+                        TextButton(onClick = { onDurationChange(selectedFrame.id, selectedFrame.duration - 1) }, enabled = selectedFrame.duration > 1) { Text("−") }
+                        TextButton(onClick = { onDurationChange(selectedFrame.id, selectedFrame.duration + 1) }, enabled = selectedFrame.duration < 10) { Text("+") }
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("All holds · ×$allDuration", modifier = Modifier.weight(1f))
+                    TextButton(onClick = { allDuration = (allDuration - 1).coerceAtLeast(1) }, enabled = allDuration > 1) { Text("−") }
+                    TextButton(onClick = { allDuration = (allDuration + 1).coerceAtMost(10) }, enabled = allDuration < 10) { Text("+") }
+                    TextButton(onClick = { showEditorTools = false; confirmApplyAll = true }, enabled = frameCount > 0) { Text("Apply") }
+                }
+                if (frameCount > 1) TextButton(onClick = { showEditorTools = false; splitCutIndex = (selectedIndex + 1).coerceIn(1, frameCount - 1); showSplitDialog = true }) { Text("Split Movie / 分割影片") }
+                TextButton(onClick = { showEditorTools = false; showExportConfirmation = true }, enabled = frameCount > 0) { Text("Export Movie / 匯出影片") }
+            }
+        },
+        confirmButton = { TextButton(onClick = { showEditorTools = false }) { Text("Done") } }
+    )
     }
 
     val framesToDelete = frames.filter { it.id in pendingDeleteIds.orEmpty() }
@@ -513,6 +513,7 @@ internal fun AnimationPreviewScreen(
         ExportConfirmationDialog(
             frames = frames,
             fps = fps,
+            rotationDegrees = rotationDegrees,
             onCancel = { showExportConfirmation = false; onExportAbandoned() },
             onExport = { configuration ->
                 showExportConfirmation = false
@@ -520,7 +521,7 @@ internal fun AnimationPreviewScreen(
                 exportJob = exportScope.launch {
                     try {
                         val movie = withContext(Dispatchers.IO) {
-                            Mp4Exporter.export(context, frames, configuration, projectId) { percent ->
+                            Mp4Exporter.export(context, frames, configuration, projectId, rotationDegrees) { percent ->
                                 withContext(Dispatchers.Main) { exportState = MovieExportState.Running(percent) }
                             }
                         }
@@ -579,11 +580,12 @@ internal fun AnimationPreviewScreen(
 private fun ExportConfirmationDialog(
     frames: List<AnimationFrame>,
     fps: Int,
+    rotationDegrees: Int,
     onCancel: () -> Unit,
     onExport: (ExportConfiguration) -> Unit
 ) {
-    val result by produceState<Result<ExportConfiguration>?>(null, frames, fps) {
-        value = withContext(Dispatchers.IO) { runCatching { Mp4Exporter.inspect(frames, fps) } }
+    val result by produceState<Result<ExportConfiguration>?>(null, frames, fps, rotationDegrees) {
+        value = withContext(Dispatchers.IO) { runCatching { Mp4Exporter.inspect(frames, fps, rotationDegrees) } }
     }
     val seconds = frames.sumOf { it.duration.coerceIn(1, 10) } / fps.coerceIn(1, 24).toDouble()
     AlertDialog(
@@ -623,13 +625,14 @@ private fun FrameThumbnail(
     selected: Boolean,
     multiSelected: Boolean,
     width: androidx.compose.ui.unit.Dp,
+    rotationDegrees: Int,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
     Column(
-        modifier = Modifier.width(width).height(106.dp)
+        modifier = Modifier.width(width).height(if (width < 80.dp) 86.dp else if (width > 100.dp) 142.dp else 112.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(if (multiSelected) Color(0xFFFFB64D) else if (selected) PreviewTeal else Color(0xFF2B3A36))
+            .background(if (multiSelected) Color(0xFFFFB64D) else if (selected) MaterialTheme.colorScheme.primary else Color(0xFF2B3A36))
             .border(
                 width = if (selected || multiSelected) 3.dp else 1.dp,
                 color = if (selected || multiSelected) Color.White else Color.White.copy(alpha = .25f),
@@ -644,7 +647,8 @@ private fun FrameThumbnail(
             contentDescription = "Frame $frameNumber thumbnail",
             modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(7.dp)).background(Color.Black),
             contentScale = ContentScale.Fit,
-            maximumDimensionPx = 360
+            maximumDimensionPx = 480,
+            rotationDegrees = rotationDegrees
         )
         if (multiSelected) {
             Text("✓", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.End).padding(5.dp))
@@ -665,14 +669,15 @@ private fun FramePhoto(
     contentDescription: String,
     modifier: Modifier,
     contentScale: ContentScale,
-    maximumDimensionPx: Int
+    maximumDimensionPx: Int,
+    rotationDegrees: Int = 0
 ) {
     BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
         val density = LocalDensity.current
         val widthPx = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1).coerceAtMost(maximumDimensionPx)
         val heightPx = with(density) { maxHeight.roundToPx() }.coerceAtLeast(1).coerceAtMost(maximumDimensionPx)
-        val decoded by produceState(false to null as Bitmap?, file.absolutePath, widthPx, heightPx) {
-            val result = withContext(Dispatchers.IO) { decodeSampledFrame(file, widthPx, heightPx) }
+        val decoded by produceState(false to null as Bitmap?, file.absolutePath, widthPx, heightPx, rotationDegrees) {
+            val result = withContext(Dispatchers.IO) { decodeSampledFrame(file, widthPx, heightPx, rotationDegrees) }
             value = true to result
         }
         val bitmap = decoded.second
@@ -689,10 +694,10 @@ private fun FramePhoto(
     }
 }
 
-internal fun decodeSampledFrame(file: File, targetWidth: Int, targetHeight: Int): Bitmap? {
+internal fun decodeSampledFrame(file: File, targetWidth: Int, targetHeight: Int, rotationDegrees: Int = 0, cacheResult: Boolean = true): Bitmap? {
     if (!file.isFile) return null
-    val cacheKey = "${file.absolutePath}:$targetWidth:$targetHeight"
-    synchronized(FrameBitmapCache) { FrameBitmapCache.get(cacheKey)?.let { return it } }
+    val cacheKey = "${file.absolutePath}:$targetWidth:$targetHeight:${rotationDegrees.mod(360)}"
+    if (cacheResult) synchronized(FrameBitmapCache) { FrameBitmapCache.get(cacheKey)?.let { return it } }
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeFile(file.absolutePath, bounds)
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
@@ -731,11 +736,18 @@ internal fun decodeSampledFrame(file: File, targetWidth: Int, targetHeight: Int)
             transform.postScale(-1f, 1f)
         }
         ExifInterface.ORIENTATION_ROTATE_270 -> transform.setRotate(270f)
-        else -> return decoded.also { bitmap -> synchronized(FrameBitmapCache) { FrameBitmapCache.put(cacheKey, bitmap) } }
+        else -> Unit
     }
     val corrected = Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, transform, true).also { correctedBitmap ->
         if (correctedBitmap !== decoded) decoded.recycle()
     }
-    synchronized(FrameBitmapCache) { FrameBitmapCache.put(cacheKey, corrected) }
-    return corrected
+    val movieRotation = ((rotationDegrees % 360) + 360) % 360
+    val displayed = if (movieRotation == 0) corrected else {
+        val movieTransform = android.graphics.Matrix().apply { postRotate(movieRotation.toFloat()) }
+        Bitmap.createBitmap(corrected, 0, 0, corrected.width, corrected.height, movieTransform, true).also { rotated ->
+            if (rotated !== corrected) corrected.recycle()
+        }
+    }
+    if (cacheResult) synchronized(FrameBitmapCache) { FrameBitmapCache.put(cacheKey, displayed) }
+    return displayed
 }

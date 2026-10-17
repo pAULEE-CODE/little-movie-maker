@@ -37,6 +37,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -69,17 +70,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 
-private val GalleryInk = androidx.compose.ui.graphics.Color(0xFF23413C)
-private val GalleryTeal = androidx.compose.ui.graphics.Color(0xFF31A996)
-private val GalleryCoral = androidx.compose.ui.graphics.Color(0xFFFF5B59)
-private val GalleryCream = androidx.compose.ui.graphics.Color(0xFFFFFDF5)
 
 internal data class ProjectGalleryItem(
     val project: AnimationProject,
     val frameCount: Int,
     val thumbnailFile: java.io.File?,
     val fps: Int = 8,
-    val previewFrames: List<AnimationFrame> = emptyList()
+    val previewFrames: List<AnimationFrame> = emptyList(),
+    val rotationDegrees: Int = 0
 )
 internal enum class ProjectGalleryView { LARGE, SMALL, LIST }
 internal enum class ProjectAction(val label: String) {
@@ -94,6 +92,7 @@ internal fun ProjectGalleryScreen(
     busy: Boolean,
     message: String?,
     viewMode: ProjectGalleryView,
+    automaticPreview: Boolean = true,
     onViewModeChange: (ProjectGalleryView) -> Unit,
     onOpen: (AnimationProject) -> Unit,
     onCreate: (String) -> Unit,
@@ -102,12 +101,15 @@ internal fun ProjectGalleryScreen(
     onDelete: (AnimationProject) -> Unit,
     onBack: () -> Unit,
     allFolders: List<AnimationFolder> = emptyList(),
+    folderProjectCounts: Map<String, Int> = emptyMap(),
     currentFolderId: String? = null,
     onOpenFolder: (AnimationFolder) -> Unit = {},
     onOpenParentFolder: () -> Unit = {},
     onOpenModes: () -> Unit = {},
     onCreateFolder: (String, String?) -> Unit = { _, _ -> },
     onRenameFolder: (AnimationFolder, String) -> Unit = { _, _ -> },
+    onMoveFolder: (AnimationFolder, String?) -> Unit = { _, _ -> },
+    onDeleteFolder: (AnimationFolder, Boolean) -> Unit = { _, _ -> },
     onMoveProjects: (Set<String>, String?) -> Unit = { _, _ -> },
     onMergeProjects: (List<String>, String, Int, String?) -> Unit = { _, _, _, _ -> },
     onBatchExport: (List<AnimationProject>) -> Unit = {},
@@ -118,6 +120,9 @@ internal fun ProjectGalleryScreen(
     var selectionMode by remember(currentFolderId) { mutableStateOf(false) }
     val selectedProjectIds = remember(currentFolderId) { mutableStateSetOf<String>() }
     var folderDialog by remember { mutableStateOf<FolderDialog?>(null) }
+    var folderPendingDelete by remember { mutableStateOf<AnimationFolder?>(null) }
+    var folderPendingMove by remember { mutableStateOf<AnimationFolder?>(null) }
+    var folderMoveDestination by remember { mutableStateOf<String?>(null) }
     var mergeOrder by remember { mutableStateOf<List<String>>(emptyList()) }
     var mergeFps by remember { mutableIntStateOf(8) }
     var showMoveFolder by remember { mutableStateOf(false) }
@@ -138,7 +143,7 @@ internal fun ProjectGalleryScreen(
     var previewProjectId by remember(projects) { mutableStateOf(projects.firstOrNull()?.project?.id) }
 
     LaunchedEffect(viewMode, projects, galleryListState) {
-        if (viewMode == ProjectGalleryView.LARGE) {
+        if (automaticPreview && viewMode == ProjectGalleryView.LARGE) {
             snapshotFlow { galleryListState.firstVisibleItemIndex }.collectLatest { index ->
                 previewProjectId = projects.getOrNull(index)?.project?.id
             }
@@ -146,27 +151,27 @@ internal fun ProjectGalleryScreen(
             previewProjectId = null
         }
     }
-    Column(Modifier.fillMaxSize().background(GalleryCream).padding(horizontal = 18.dp, vertical = 14.dp)) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onBack) { Text("← Home") }
                 TextButton(onClick = onOpenModes) { Text("MODES") }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("My Little Movies", fontSize = 24.sp, color = GalleryInk, fontWeight = FontWeight.ExtraBold)
-                Text("我的小電影", fontSize = 17.sp, color = GalleryTeal, fontWeight = FontWeight.Bold)
+                Text("My Little Movies", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.ExtraBold)
+                Text("我的小電影", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.size(68.dp))
         }
         Button(
             onClick = { dialog = GalleryDialog.Create },
             enabled = !busy,
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(58.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = GalleryCoral),
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp).height(52.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
             shape = RoundedCornerShape(18.dp)
         ) { Text("＋  New Movie / 新增電影", fontSize = 19.sp, fontWeight = FontWeight.Bold) }
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Location: $folderLocation", color = GalleryInk, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text("Location: $folderLocation", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             Row {
                 if (currentFolder != null) TextButton(onClick = onOpenParentFolder) { Text("↑ Parent") }
                 TextButton(onClick = { folderDialog = FolderDialog.Create }) { Text("＋ Folder") }
@@ -176,13 +181,19 @@ internal fun ProjectGalleryScreen(
         if (childFolders.isNotEmpty()) {
             LazyRow(Modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 items(childFolders, key = { "folder-${it.id}" }) { folder ->
-                    FolderChip(folder, onOpen = { onOpenFolder(folder) }, onRename = { folderDialog = FolderDialog.Rename(folder) })
+                    FolderChip(
+                        folder,
+                        onOpen = { onOpenFolder(folder) },
+                        onRename = { folderDialog = FolderDialog.Rename(folder) },
+                        onMove = { folderPendingMove = folder; folderMoveDestination = folder.parentId },
+                        onDelete = { folderPendingDelete = folder }
+                    )
                 }
             }
         }
         if (selectionMode) {
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("${selectedProjectIds.size} selected", color = GalleryInk, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("${selectedProjectIds.size} selected", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 TextButton(onClick = { selectionMode = false; selectedProjectIds.clear() }) { Text("Done") }
                 TextButton(onClick = { showMoveFolder = true }) { Text("Move") }
                 TextButton(onClick = {
@@ -191,7 +202,7 @@ internal fun ProjectGalleryScreen(
                     dialog = GalleryDialog.Merge
                 }, enabled = selectedProjectIds.size >= 2) { Text("Merge") }
                 TextButton(onClick = { onBatchExport(selectedProjects.map { it.project }) }, enabled = selectedProjects.isNotEmpty() && !busy) { Text("Export") }
-                TextButton(onClick = { showBatchDelete = true }, enabled = selectedProjects.isNotEmpty(), colors = ButtonDefaults.textButtonColors(contentColor = GalleryCoral)) { Text("Delete") }
+                TextButton(onClick = { showBatchDelete = true }, enabled = selectedProjects.isNotEmpty(), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Delete") }
             }
         }
         Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -201,8 +212,8 @@ internal fun ProjectGalleryScreen(
                     modifier = Modifier.weight(1f).height(46.dp),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 4.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (viewMode == option) GalleryTeal else androidx.compose.ui.graphics.Color(0xFFDCEFEA),
-                        contentColor = if (viewMode == option) androidx.compose.ui.graphics.Color.White else GalleryInk
+                        containerColor = if (viewMode == option) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = if (viewMode == option) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                     ),
                     shape = RoundedCornerShape(14.dp)
                 ) {
@@ -219,10 +230,10 @@ internal fun ProjectGalleryScreen(
                 }
             }
         }
-        if (busy) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).padding(10.dp), color = GalleryTeal)
-        message?.let { Text(it, color = GalleryCoral, modifier = Modifier.padding(top = 8.dp)) }
+        if (busy) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).padding(10.dp), color = MaterialTheme.colorScheme.primary)
+        message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
         if (projects.isEmpty() && childFolders.isEmpty() && !busy) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("Your movie shelf is ready for a story!\n準備好開始創作了！", color = GalleryInk, fontSize = 19.sp, fontWeight = FontWeight.Bold) }
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("Your movie shelf is ready for a story!\n準備好開始創作了！", color = MaterialTheme.colorScheme.onBackground, fontSize = 19.sp, fontWeight = FontWeight.Bold) }
         } else {
             when (viewMode) {
                 ProjectGalleryView.SMALL -> LazyVerticalGrid(
@@ -243,7 +254,7 @@ internal fun ProjectGalleryScreen(
                     }
                 }
                 ProjectGalleryView.LARGE, ProjectGalleryView.LIST -> {
-                    if (viewMode == ProjectGalleryView.LARGE) {
+                    if (automaticPreview && viewMode == ProjectGalleryView.LARGE) {
                         projects.firstOrNull { it.project.id == previewProjectId }?.let { GalleryMotionPreview(it) }
                     }
                     LazyColumn(
@@ -307,12 +318,56 @@ internal fun ProjectGalleryScreen(
         null -> Unit
     }
 
+    folderPendingDelete?.let { folder ->
+        val hasContents = (folderProjectCounts[folder.id] ?: 0) > 0 || allFolders.any { it.parentId == folder.id }
+        AlertDialog(
+            onDismissRequest = { folderPendingDelete = null },
+            title = { Text("Delete folder · ${folder.name}?") },
+            text = { Text(if (hasContents) "This folder contains movies or folders. They will be moved to the parent folder; no movies will be deleted." else "This empty folder will be removed.") },
+            confirmButton = {
+                TextButton(onClick = { onDeleteFolder(folder, hasContents); folderPendingDelete = null }) {
+                    Text(if (hasContents) "Move contents and delete" else "Delete folder")
+                }
+            },
+            dismissButton = { TextButton(onClick = { folderPendingDelete = null }) { Text("Cancel") } }
+        )
+    }
+
+    folderPendingMove?.let { folder ->
+        fun isBelow(candidateId: String, ancestorId: String): Boolean {
+            var node = allFolders.firstOrNull { it.id == candidateId }
+            val seen = mutableSetOf<String>()
+            while (node != null && seen.add(node.id)) {
+                if (node.parentId == ancestorId) return true
+                node = node.parentId?.let(folderById::get)
+            }
+            return false
+        }
+        AlertDialog(
+            onDismissRequest = { folderPendingMove = null },
+            title = { Text("Move folder · ${folder.name}") },
+            text = {
+                Column {
+                    TextButton(onClick = { folderMoveDestination = null }) { Text(if (folderMoveDestination == null) "✓ Root / 根目錄" else "Root / 根目錄") }
+                    allFolders.filter { it.id != folder.id && !isBelow(it.id, folder.id) }.forEach { destination ->
+                        TextButton(onClick = { folderMoveDestination = destination.id }) {
+                            Text(if (folderMoveDestination == destination.id) "✓ ${destination.name}" else destination.name)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { onMoveFolder(folder, folderMoveDestination); folderPendingMove = null }) { Text("Move") } },
+            dismissButton = { TextButton(onClick = { folderPendingMove = null }) { Text("Cancel") } }
+        )
+    }
+
     if (showMoveFolder) {
         AlertDialog(
             onDismissRequest = { showMoveFolder = false },
             title = { Text("Move selected movies") },
             text = {
                 Column {
+                    TextButton(onClick = { folderDialog = FolderDialog.Create }) { Text("＋ New folder / 新增資料夾") }
                     TextButton(onClick = { moveTargetFolder = null }) { Text(if (moveTargetFolder == null) "✓ Root folder" else "Root folder") }
                     allFolders.forEach { folder ->
                         TextButton(onClick = { moveTargetFolder = folder.id }) { Text(if (moveTargetFolder == folder.id) "✓ ${folder.name}" else folder.name) }
@@ -368,7 +423,7 @@ private fun ProjectCard(
             onLongClick = onLongSelect
         ),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = when { multiSelected -> androidx.compose.ui.graphics.Color(0xFFFFEDC8); selected -> androidx.compose.ui.graphics.Color(0xFFE0F4ED); else -> androidx.compose.ui.graphics.Color.White }),
+        colors = CardDefaults.cardColors(containerColor = when { multiSelected -> MaterialTheme.colorScheme.tertiaryContainer; selected -> MaterialTheme.colorScheme.secondaryContainer; else -> MaterialTheme.colorScheme.surface }),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
     ) {
         when (viewMode) {
@@ -378,22 +433,22 @@ private fun ProjectCard(
                     ProjectNameAndInfo(item, 18)
                 ProjectActions(enabled, onRename, onDuplicate, onDelete)
                 Box {
-                    TextButton(onClick = { actionsExpanded = true }, enabled = enabled) { Text("•••", color = GalleryTeal) }
+                    TextButton(onClick = { actionsExpanded = true }, enabled = enabled) { Text("•••", color = MaterialTheme.colorScheme.primary) }
                     DropdownMenu(expanded = actionsExpanded, onDismissRequest = { actionsExpanded = false }) {
                         ProjectAction.entries.forEach { action -> DropdownMenuItem(text = { Text(action.label) }, onClick = { actionsExpanded = false; dispatchAction(action) }) }
                     }
                 }
                 }
-                Text("›", color = GalleryTeal, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                Text("›", color = MaterialTheme.colorScheme.primary, fontSize = 30.sp, fontWeight = FontWeight.Bold)
             }
             ProjectGalleryView.SMALL -> Column(Modifier.fillMaxWidth().padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 ProjectThumbnail(item, thumb, Modifier.fillMaxWidth().height(68.dp))
-                Text(item.project.name, color = GalleryInk, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
-                Text("${item.frameCount} frames / 張", color = GalleryInk, fontSize = 11.sp, maxLines = 1, modifier = Modifier.fillMaxWidth())
+                Text(item.project.name, color = MaterialTheme.colorScheme.onBackground, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                Text("${item.frameCount} frames / 張", color = MaterialTheme.colorScheme.onBackground, fontSize = 11.sp, maxLines = 1, modifier = Modifier.fillMaxWidth())
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = onOpen, enabled = enabled, modifier = Modifier.weight(1f).height(44.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp)) { Text("Open / 開啟", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1) }
                     Box {
-                        TextButton(onClick = { actionsExpanded = true }, enabled = enabled, modifier = Modifier.size(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("•••", fontWeight = FontWeight.ExtraBold, color = GalleryTeal) }
+                        TextButton(onClick = { actionsExpanded = true }, enabled = enabled, modifier = Modifier.size(48.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("•••", fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary) }
                         DropdownMenu(expanded = actionsExpanded, onDismissRequest = { actionsExpanded = false }) {
                             ProjectAction.entries.forEach { action -> DropdownMenuItem(text = { Text(action.label) }, onClick = { actionsExpanded = false; dispatchAction(action) }) }
                         }
@@ -401,13 +456,13 @@ private fun ProjectCard(
                 }
             }
             ProjectGalleryView.LIST -> Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (multiSelected) Text("✓", color = GalleryTeal, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(end = 8.dp))
+                if (multiSelected) Text("✓", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(end = 8.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(item.project.name, color = GalleryInk, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-                    Text("${item.frameCount} frames · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(item.project.modifiedAt))}", color = GalleryInk.copy(alpha = .78f), fontSize = 11.sp, maxLines = 1)
+                    Text(item.project.name, color = MaterialTheme.colorScheme.onBackground, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                    Text("${item.frameCount} frames · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(item.project.modifiedAt))}", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .78f), fontSize = 11.sp, maxLines = 1)
                 }
                 Box {
-                    Text("•••", color = GalleryTeal, modifier = Modifier.clickable { actionsExpanded = true }.padding(10.dp))
+                    Text("•••", color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { actionsExpanded = true }.padding(10.dp))
                     DropdownMenu(expanded = actionsExpanded, onDismissRequest = { actionsExpanded = false }) {
                     ProjectAction.entries.forEach { action -> DropdownMenuItem(text = { Text(action.label) }, onClick = { actionsExpanded = false; dispatchAction(action) }) }
                     }
@@ -422,9 +477,9 @@ private fun GalleryMotionPreview(item: ProjectGalleryItem) {
     var index by remember(item.project.id) { mutableIntStateOf(0) }
     val frame = item.previewFrames.getOrNull(index.coerceIn(0, (item.previewFrames.size - 1).coerceAtLeast(0)))
     val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, frame?.file?.absolutePath) {
-        value = frame?.let { withContext(Dispatchers.IO) { decodeSampledFrame(it.file, 480, 320) } }
+        value = frame?.let { withContext(Dispatchers.IO) { decodeSampledFrame(it.file, 480, 320, item.rotationDegrees) } }
     }
-    LaunchedEffect(item.project.id, item.previewFrames, item.fps) {
+    LaunchedEffect(item.project.id, item.previewFrames, item.fps, item.rotationDegrees) {
         if (item.previewFrames.isEmpty()) return@LaunchedEffect
         index = 0
         while (isActive) {
@@ -435,7 +490,7 @@ private fun GalleryMotionPreview(item: ProjectGalleryItem) {
     }
     Card(
         Modifier.fillMaxWidth().padding(top = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = GalleryInk),
+        colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.Black),
         shape = RoundedCornerShape(18.dp)
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -458,7 +513,7 @@ private fun GalleryMotionPreview(item: ProjectGalleryItem) {
 
 @Composable
 private fun ProjectThumbnail(item: ProjectGalleryItem, bitmap: android.graphics.Bitmap?, modifier: Modifier) {
-    Box(modifier.clip(RoundedCornerShape(12.dp)).background(androidx.compose.ui.graphics.Color(0xFFE8F2F4)), contentAlignment = Alignment.Center) {
+    Box(modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
         if (bitmap != null) Image(bitmap.asImageBitmap(), contentDescription = "${item.project.name} thumbnail / 縮圖", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         else Text("🎬", fontSize = 30.sp)
     }
@@ -466,15 +521,16 @@ private fun ProjectThumbnail(item: ProjectGalleryItem, bitmap: android.graphics.
 
 @Composable
 private fun ProjectNameAndInfo(item: ProjectGalleryItem, nameSize: Int) {
-    Text(item.project.name, color = GalleryInk, fontSize = nameSize.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2)
-    Text("${item.frameCount} frames / 張  ·  ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(item.project.modifiedAt))}", color = GalleryInk, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp), maxLines = 2)
+    Text(item.project.name, color = MaterialTheme.colorScheme.onBackground, fontSize = nameSize.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2)
+    Text("${item.frameCount} frames / 張  ·  ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(item.project.modifiedAt))}", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp), maxLines = 2)
 }
 
 @Composable
 private fun ProjectActions(enabled: Boolean, onRename: () -> Unit, onDuplicate: () -> Unit, onDelete: () -> Unit, compact: Boolean = false) {
+    val primary = MaterialTheme.colorScheme.primary
     Row(horizontalArrangement = Arrangement.spacedBy(if (compact) 0.dp else 2.dp), verticalAlignment = Alignment.CenterVertically) {
         if (compact) {
-            IconButton(onClick = onRename, enabled = enabled) { Icon(Icons.Filled.Edit, contentDescription = "Rename / 改名", tint = GalleryTeal) }
+            IconButton(onClick = onRename, enabled = enabled) { Icon(Icons.Filled.Edit, contentDescription = "Rename / 改名", tint = MaterialTheme.colorScheme.primary) }
             IconButton(
                 onClick = onDuplicate,
                 enabled = enabled,
@@ -482,8 +538,8 @@ private fun ProjectActions(enabled: Boolean, onRename: () -> Unit, onDuplicate: 
             ) {
                 androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
                     val sw = 2.dp.toPx()
-                    drawRoundRect(GalleryTeal, topLeft = androidx.compose.ui.geometry.Offset(size.width * .28f, size.height * .12f), size = androidx.compose.ui.geometry.Size(size.width * .58f, size.height * .62f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(sw), style = androidx.compose.ui.graphics.drawscope.Stroke(sw))
-                    drawRoundRect(GalleryTeal, topLeft = androidx.compose.ui.geometry.Offset(size.width * .12f, size.height * .28f), size = androidx.compose.ui.geometry.Size(size.width * .58f, size.height * .62f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(sw), style = androidx.compose.ui.graphics.drawscope.Stroke(sw))
+                    drawRoundRect(primary, topLeft = androidx.compose.ui.geometry.Offset(size.width * .28f, size.height * .12f), size = androidx.compose.ui.geometry.Size(size.width * .58f, size.height * .62f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(sw), style = androidx.compose.ui.graphics.drawscope.Stroke(sw))
+                    drawRoundRect(primary, topLeft = androidx.compose.ui.geometry.Offset(size.width * .12f, size.height * .28f), size = androidx.compose.ui.geometry.Size(size.width * .58f, size.height * .62f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(sw), style = androidx.compose.ui.graphics.drawscope.Stroke(sw))
                 }
             }
         } else {
@@ -491,7 +547,7 @@ private fun ProjectActions(enabled: Boolean, onRename: () -> Unit, onDuplicate: 
             TextButton(onClick = onDuplicate, enabled = enabled, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 5.dp)) { Text("Copy / 複製", fontSize = 11.sp, maxLines = 1) }
         }
         IconButton(onClick = onDelete, enabled = enabled, modifier = Modifier.size(48.dp)) {
-            Icon(Icons.Filled.Delete, contentDescription = "Delete movie / 刪除電影", tint = GalleryCoral)
+            Icon(Icons.Filled.Delete, contentDescription = "Delete movie / 刪除電影", tint = MaterialTheme.colorScheme.error)
         }
     }
 }
@@ -509,15 +565,17 @@ private fun NameDialog(title: String, initial: String, confirm: String, onDismis
 }
 
 @Composable
-private fun FolderChip(folder: AnimationFolder, onOpen: () -> Unit, onRename: () -> Unit) {
+private fun FolderChip(folder: AnimationFolder, onOpen: () -> Unit, onRename: () -> Unit, onMove: () -> Unit, onDelete: () -> Unit) {
     var expanded by remember(folder.id) { mutableStateOf(false) }
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(androidx.compose.ui.graphics.Color(0xFFE5F3EF))) {
-        TextButton(onClick = onOpen, contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 4.dp)) { Text("📁 ${folder.name}", color = GalleryInk, maxLines = 1) }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
+        TextButton(onClick = onOpen, contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 4.dp)) { Text("📁 ${folder.name}", color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
         Box {
-            Text("⋮", color = GalleryTeal, modifier = Modifier.clickable { expanded = true }.padding(horizontal = 10.dp, vertical = 8.dp))
+            Text("⋮", color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { expanded = true }.padding(horizontal = 10.dp, vertical = 8.dp))
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 DropdownMenuItem(text = { Text("Open") }, onClick = { expanded = false; onOpen() })
                 DropdownMenuItem(text = { Text("Rename") }, onClick = { expanded = false; onRename() })
+                DropdownMenuItem(text = { Text("Move folder") }, onClick = { expanded = false; onMove() })
+                DropdownMenuItem(text = { Text("Delete folder") }, onClick = { expanded = false; onDelete() })
             }
         }
     }

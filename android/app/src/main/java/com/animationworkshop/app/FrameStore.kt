@@ -35,6 +35,13 @@ internal class FrameStore(private val projectFolder: File) {
         return File(projectFolder, "frame_${nextIndex.toString().padStart(6, '0')}.jpg")
     }
 
+    /** Temporary CameraX source file for grouped timelapse capture; it is not part of the movie. */
+    @Synchronized
+    fun newStagingCapture(): File {
+        if (!projectFolder.exists() && !projectFolder.mkdirs()) error("Could not create the animation project folder")
+        return File(projectFolder, ".capture-${UUID.randomUUID()}.tmp")
+    }
+
     @Synchronized
     fun recordCapturedFrame(file: File) {
         val current = frames()
@@ -129,7 +136,7 @@ internal class FrameStore(private val projectFolder: File) {
     }
 
     @Synchronized
-    fun initializeFromFrames(sourceFrames: List<AnimationFrame>, fps: Int) {
+    fun initializeFromFrames(sourceFrames: List<AnimationFrame>, fps: Int, rotationDegrees: Int = 0) {
         check(frames().isEmpty()) { "A new movie project must be empty before frames are copied" }
         if (sourceFrames.isEmpty()) return
         val copied = mutableListOf<AnimationFrame>()
@@ -142,6 +149,7 @@ internal class FrameStore(private val projectFolder: File) {
             }
             writeManifest(copied)
             savePlaybackFps(fps)
+            saveMovieRotationDegrees(rotationDegrees)
         } catch (failure: Throwable) {
             copied.forEach { it.file.delete() }
             throw failure
@@ -194,6 +202,17 @@ internal class FrameStore(private val projectFolder: File) {
     @Synchronized
     fun savePlaybackFps(fps: Int) {
         updateProjectProperties { setProperty("playbackFps", fps.coerceIn(1, 24).toString()) }
+    }
+
+    @Synchronized
+    fun movieRotationDegrees(): Int = readProjectProperties()
+        .getProperty("movieRotationDegrees")?.toIntOrNull()?.let { ((it % 360) + 360) % 360 } ?: 0
+
+    @Synchronized
+    fun saveMovieRotationDegrees(degrees: Int) {
+        val normalized = ((degrees % 360) + 360) % 360
+        require(normalized % 90 == 0) { "Movie rotation must use 90-degree steps" }
+        updateProjectProperties { setProperty("movieRotationDegrees", normalized.toString()) }
     }
 
     private fun photoFiles(): List<File> = projectFolder.listFiles { file ->
