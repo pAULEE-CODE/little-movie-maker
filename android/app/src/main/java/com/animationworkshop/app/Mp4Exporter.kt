@@ -38,6 +38,14 @@ internal data class ExportConfiguration(
 
 internal data class ExportedMovie(val uri: Uri, val fileName: String)
 
+internal object ProjectExportIdentity {
+    fun fileNamePrefix(projectId: String): String? = projectId.takeIf { it.matches(Regex("[a-zA-Z0-9-]{1,80}")) }
+        ?.let { "AnimationWorkshop_${it}_" }
+
+    fun belongsToProject(fileName: String, projectId: String): Boolean =
+        fileNamePrefix(projectId)?.let(fileName::startsWith) == true
+}
+
 private data class YuvFrame(val y: ByteArray, val u: ByteArray, val v: ByteArray)
 
 /** Streams sampled frames into Android's AVC encoder without changing project files or metadata. */
@@ -60,6 +68,7 @@ internal object Mp4Exporter {
         context: Context,
         frames: List<AnimationFrame>,
         configuration: ExportConfiguration,
+        projectId: String? = null,
         onProgress: suspend (Int) -> Unit
     ): ExportedMovie {
         require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -69,7 +78,7 @@ internal object Mp4Exporter {
 
         val resolver = context.contentResolver
         val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        val fileName = uniqueFileName(context)
+        val fileName = uniqueFileName(context, projectId)
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
             put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
@@ -522,13 +531,14 @@ internal object Mp4Exporter {
         return if (rotated) bounds.outHeight to bounds.outWidth else bounds.outWidth to bounds.outHeight
     }
 
-    private fun uniqueFileName(context: Context): String {
+    private fun uniqueFileName(context: Context, projectId: String?): String {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
+        val moviePrefix = projectId?.let(ProjectExportIdentity::fileNamePrefix) ?: "AnimationWorkshop_"
         val resolver = context.contentResolver
         val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         var suffix = 0
         while (true) {
-            val candidate = if (suffix == 0) "AnimationWorkshop_$timestamp.mp4" else "AnimationWorkshop_${timestamp}_${suffix.toString().padStart(2, '0')}.mp4"
+            val candidate = if (suffix == 0) "${moviePrefix}${timestamp}.mp4" else "${moviePrefix}${timestamp}_${suffix.toString().padStart(2, '0')}.mp4"
             val exists = resolver.query(
                 collection,
                 arrayOf(MediaStore.MediaColumns._ID),

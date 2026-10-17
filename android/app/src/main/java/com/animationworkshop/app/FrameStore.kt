@@ -12,10 +12,12 @@ internal data class AnimationFrame(val id: String, val file: File, val duration:
 /** Keeps legacy JPEGs in place and stores editable sequence metadata beside them. */
 internal class FrameStore(private val projectFolder: File) {
     private val manifest = AtomicFile(File(projectFolder, "frames.json"))
+    private val pendingDelete = AtomicFile(File(projectFolder, ".pending-frame-deletion.json"))
 
     @Synchronized
     fun frames(): List<AnimationFrame> {
         if (!projectFolder.exists()) projectFolder.mkdirs()
+        recoverPendingDeletion()
         val entries = readManifest()
         val knownFiles = entries.map { it.file.name }.toSet()
         val unlisted = photoFiles().filterNot { it.name in knownFiles }.sortedBy { it.name }
@@ -89,40 +91,93 @@ internal class FrameStore(private val projectFolder: File) {
 
     @Synchronized
     fun deleteFrame(id: String): List<AnimationFrame> {
-        val current = frames().toMutableList()
-        val index = current.indexOfFirst { it.id == id }
-        if (index < 0) return current
-        val removed = current.removeAt(index)
-        // A hidden subdirectory prevents a deleted legacy JPEG being rediscovered as an orphan.
-        val trashFolder = File(projectFolder, ".deleted")
-        val movedFile = if (removed.file.isFile) {
-            if (!trashFolder.mkdirs() && !trashFolder.isDirectory) error("Could not prepare the deleted photo")
-            File(trashFolder, "${UUID.randomUUID()}.jpg").also {
-                if (!removed.file.renameTo(it)) error("Could not safely remove the selected photo")
-            }
-        } else null
-        try {
-            writeManifest(current)
-            movedFile?.delete()
-        } catch (exception: Exception) {
-            if (movedFile != null) movedFile.renameTo(removed.file)
-            throw exception
-        }
-        return current
+        return deleteFrames(setOf(id))
     }
 
     @Synchronized
-    fun playbackFps(): Int {
+    fun deleteFrames(ids: Set<String>): List<AnimationFrame> {
+        if (ids.isEmpty()) return frames()
+        val current = frames().toMutableList()
+        val selected = current.filter { it.id in ids }
+        if (selected.isEmpty()) return current
+        val output = pendingDelete.startWrite()
+        try {
+            output.write(JSONObject().put("frameIds", JSONArray(selected.map { it.id })).toString().toByteArray(Charsets.UTF_8))
+            pendingDelete.finishWrite(output)
+        } catch (failure: Throwable) {
+            pendingDelete.failWrite(output)
+            throw failure
+        }
+        recoverPendingDeletion()
+        return readManifest()
+    }
+
+    @Synchronized
+    fun deleteConfirmationEnabled(): Boolean = readProjectProperties().getProperty("confirmFrameDeletion")?.toBooleanStrictOrNull() ?: true
+
+    @Synchronized
+    fun saveDeleteConfirmationEnabled(enabled: Boolean) {
+        updateProjectProperties { setProperty("confirmFrameDeletion", enabled.toString()) }
+    }
+
+    @Synchronized
+    fun timelineZoomLevel(): Int = readProjectProperties().getProperty("timelineZoom")?.toIntOrNull()?.coerceIn(0, 2) ?: 1
+
+    @Synchronized
+    fun saveTimelineZoomLevel(level: Int) {
+        updateProjectProperties { setProperty("timelineZoom", level.coerceIn(0, 2).toString()) }
+    }
+
+    @Synchronized
+    fun initializeFromFrames(sourceFrames: List<AnimationFrame>, fps: Int) {
+        check(frames().isEmpty()) { "A new movie project must be empty before frames are copied" }
+        if (sourceFrames.isEmpty()) return
+        val copied = mutableListOf<AnimationFrame>()
+        try {
+            sourceFrames.forEachIndexed { index, source ->
+                check(source.file.isFile) { "A source photograph is missing" }
+                val target = File(projectFolder, "frame_${(index + 1).toString().padStart(6, '0')}.jpg")
+                source.file.copyTo(target, overwrite = false)
+                copied += AnimationFrame(UUID.randomUUID().toString(), target, source.duration.coerceIn(1, 10))
+            }
+            writeManifest(copied)
+            savePlaybackFps(fps)
+        } catch (failure: Throwable) {
+            copied.forEach { it.file.delete() }
+            throw failure
+        }
+    }
+
+    private fun readProjectProperties(): Properties {
         val properties = Properties()
         runCatching { AtomicFile(File(projectFolder, "project.properties")).openRead().use(properties::load) }
-        return properties.getProperty("playbackFps")?.toIntOrNull()?.coerceIn(1, 24) ?: 8
+        return properties
     }
 
-    @Synchronized
-    fun savePlaybackFps(fps: Int) {
+    /** A small journal makes a multi-frame delete finish safely if Android stops the process midway. */
+    private fun recoverPendingDeletion() {
+        if (!pendingDelete.baseFile.isFile) return
+        val ids = runCatching {
+            val array = JSONObject(pendingDelete.openRead().bufferedReader().use { it.readText() }).getJSONArray("frameIds")
+            (0 until array.length()).map { array.getString(it) }.toSet()
+        }.getOrDefault(emptySet())
+        val all = readManifest()
+        val selected = all.filter { it.id in ids }
+        val trashFolder = File(projectFolder, ".deleted/${pendingDelete.baseFile.nameWithoutExtension}")
+        if (!trashFolder.exists() && !trashFolder.mkdirs()) error("Could not prepare the selected photos for deletion")
+        selected.filter { it.file.isFile }.forEachIndexed { index, frame ->
+            val trashFile = File(trashFolder, "${index}_${frame.file.name}")
+            check(frame.file.renameTo(trashFile)) { "Could not safely remove a selected photo" }
+        }
+        writeManifest(all.filterNot { it.id in ids })
+        trashFolder.deleteRecursively()
+        pendingDelete.baseFile.delete()
+    }
+
+    private fun updateProjectProperties(change: Properties.() -> Unit) {
         if (!projectFolder.exists() && !projectFolder.mkdirs()) error("Could not create the animation project folder")
         val settingsFile = AtomicFile(File(projectFolder, "project.properties"))
-        val properties = Properties().apply { setProperty("playbackFps", fps.coerceIn(1, 24).toString()) }
+        val properties = readProjectProperties().apply(change)
         val output = settingsFile.startWrite()
         try {
             properties.store(output, "Animation Workshop project settings")
@@ -131,6 +186,14 @@ internal class FrameStore(private val projectFolder: File) {
             settingsFile.failWrite(output)
             throw exception
         }
+    }
+
+    @Synchronized
+    fun playbackFps(): Int = readProjectProperties().getProperty("playbackFps")?.toIntOrNull()?.coerceIn(1, 24) ?: 8
+
+    @Synchronized
+    fun savePlaybackFps(fps: Int) {
+        updateProjectProperties { setProperty("playbackFps", fps.coerceIn(1, 24).toString()) }
     }
 
     private fun photoFiles(): List<File> = projectFolder.listFiles { file ->

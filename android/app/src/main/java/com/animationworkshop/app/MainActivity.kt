@@ -130,6 +130,8 @@ private fun StopMotionApp() {
     val context = LocalContext.current
     val projectRepository = remember { ProjectRepository(context) }
     var projects by remember { mutableStateOf<List<ProjectGalleryItem>>(emptyList()) }
+    var allFolders by remember { mutableStateOf<List<AnimationFolder>>(emptyList()) }
+    var currentFolderId by remember { mutableStateOf<String?>(null) }
     var activeProjectId by remember { mutableStateOf<String?>(null) }
     var projectsReady by remember { mutableStateOf(false) }
     var projectOperationBusy by remember { mutableStateOf(false) }
@@ -147,6 +149,8 @@ private fun StopMotionApp() {
     var showTimelapseNavigationConfirm by remember { mutableStateOf(false) }
     var reviewIndex by remember { mutableStateOf(0) }
     var playbackFps by remember { mutableStateOf(8) }
+    var confirmFrameDeletion by remember { mutableStateOf(true) }
+    var timelineZoomLevel by remember { mutableStateOf(1) }
     var refresh by remember { mutableStateOf(0) }
     var snapshot by remember { mutableStateOf(ProjectSnapshot(emptyList(), null)) }
     var hasCameraPermission by remember {
@@ -156,6 +160,7 @@ private fun StopMotionApp() {
     var message by remember { mutableStateOf<String?>(null) }
     var settingsMessage by remember { mutableStateOf<String?>(null) }
     var modeNotice by remember { mutableStateOf<String?>(null) }
+    var pendingShareProjectId by remember { mutableStateOf<String?>(null) }
     var autoAdvanceSplash by remember { mutableStateOf(true) }
     var galleryView by remember {
         mutableStateOf(runCatching {
@@ -167,7 +172,7 @@ private fun StopMotionApp() {
     val activity = context as? ComponentActivity
     val immersive = screen == AppScreen.CAMERA || screen == AppScreen.PREVIEW || screen == AppScreen.TIMELAPSE_SETUP || screen == AppScreen.TIMELAPSE
 
-    BackHandler(enabled = screen == AppScreen.GALLERY || screen == AppScreen.PREVIEW || screen == AppScreen.REVIEW || screen == AppScreen.TIMELAPSE_SETUP) {
+    BackHandler(enabled = screen == AppScreen.GALLERY || screen == AppScreen.PREVIEW || screen == AppScreen.REVIEW || screen == AppScreen.TIMELAPSE_SETUP || screen == AppScreen.EFFECTS) {
         if (screen == AppScreen.PREVIEW || screen == AppScreen.TIMELAPSE_SETUP || screen == AppScreen.REVIEW) activeMode = ModeDestination.CAMERA
         if (screen == AppScreen.GALLERY) autoAdvanceSplash = false
         screen = when (screen) {
@@ -175,6 +180,7 @@ private fun StopMotionApp() {
             AppScreen.PREVIEW -> AppScreen.CAMERA
             AppScreen.REVIEW -> AppScreen.HOME
             AppScreen.TIMELAPSE_SETUP -> AppScreen.CAMERA
+            AppScreen.EFFECTS -> AppScreen.GALLERY
             else -> screen
         }
     }
@@ -195,14 +201,16 @@ private fun StopMotionApp() {
     }
 
     suspend fun loadGallery(selectId: String? = null) {
-        val all = withContext(Dispatchers.IO) { projectRepository.projects() }
+        val all = withContext(Dispatchers.IO) { projectRepository.projectsInFolder(currentFolderId) }
         val items = withContext(Dispatchers.IO) {
             all.map { project ->
-                val frames = projectRepository.frameStore(project).frames()
-                ProjectGalleryItem(project, frames.size, frames.lastOrNull()?.file)
+                val store = projectRepository.frameStore(project)
+                val frames = store.frames()
+                ProjectGalleryItem(project, frames.size, frames.lastOrNull()?.file, store.playbackFps(), frames)
             }
         }
         projects = items
+        allFolders = withContext(Dispatchers.IO) { projectRepository.folders() }
         val preferredId = selectId ?: activeProjectId ?: projectRepository.activeProjectId()
         if (items.none { it.project.id == preferredId }) activeProjectId = items.firstOrNull()?.project?.id
         else activeProjectId = preferredId
@@ -266,6 +274,20 @@ private fun StopMotionApp() {
         }
     }
 
+    fun shareMovieUri(movieUri: Uri) {
+        runCatching {
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "video/mp4"
+                putExtra(Intent.EXTRA_STREAM, movieUri)
+                clipData = ClipData.newUri(context.contentResolver, "Little Movie Maker movie", movieUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(send, "Share Movie / 分享電影")
+            if (context !is Activity) chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(chooser)
+        }.onFailure { modeNotice = "The movie could not be shared. Please try again. / 無法分享影片，請再試一次。" }
+    }
+
     fun navigateToMode(destination: ModeDestination) {
         modesOpen = false
         if (timelapseActive) {
@@ -286,7 +308,8 @@ private fun StopMotionApp() {
                 if (destination == ModeDestination.EXPORT) exportRequest++
             }
             ModeDestination.PROJECTS -> screen = AppScreen.GALLERY
-            ModeDestination.EFFECTS, ModeDestination.ADVANCED -> modeNotice = "Coming Soon! / 即將推出！"
+            ModeDestination.EFFECTS -> screen = AppScreen.EFFECTS
+            ModeDestination.ADVANCED -> screen = AppScreen.EFFECTS
             ModeDestination.SHARE -> shareLatestExportedMovie()
         }
     }
@@ -314,8 +337,11 @@ private fun StopMotionApp() {
 
     LaunchedEffect(activeProject?.id) {
         val store = frameStore
-        if (store == null) { playbackFps = 8; return@LaunchedEffect }
-        playbackFps = withContext(Dispatchers.IO) { store.playbackFps() }
+        if (store == null) { playbackFps = 8; confirmFrameDeletion = true; timelineZoomLevel = 1; return@LaunchedEffect }
+        val settings = withContext(Dispatchers.IO) { Triple(store.playbackFps(), store.deleteConfirmationEnabled(), store.timelineZoomLevel()) }
+        playbackFps = settings.first
+        confirmFrameDeletion = settings.second
+        timelineZoomLevel = settings.third
     }
 
     fun editFrames(block: () -> List<AnimationFrame>, onSuccess: (List<AnimationFrame>) -> Unit = {}) {
@@ -391,7 +417,7 @@ private fun StopMotionApp() {
             },
             onOpen = ::openProject,
             onCreate = { name -> runProjectOperation {
-                val created = withContext(Dispatchers.IO) { projectRepository.create(name) }
+                val created = withContext(Dispatchers.IO) { projectRepository.create(name, currentFolderId) }
                 loadGallery(created.id)
                 withContext(Dispatchers.IO) { projectRepository.setActiveProjectId(created.id) }
                 activeProjectId = created.id
@@ -415,7 +441,87 @@ private fun StopMotionApp() {
                 if (activeProjectId == project.id) activeProjectId = nextId
                 refresh++
             } },
-            onBack = { autoAdvanceSplash = false; screen = AppScreen.HOME }
+            onBack = { autoAdvanceSplash = false; screen = AppScreen.HOME },
+            allFolders = allFolders,
+            currentFolderId = currentFolderId,
+            onOpenFolder = { folder -> currentFolderId = folder.id; runProjectOperation { loadGallery() } },
+            onOpenParentFolder = { currentFolderId = allFolders.firstOrNull { it.id == currentFolderId }?.parentId; runProjectOperation { loadGallery() } },
+            onOpenModes = { activeMode = ModeDestination.PROJECTS; modesOpen = true },
+            onCreateFolder = { name, parentId -> runProjectOperation {
+                withContext(Dispatchers.IO) { projectRepository.createFolder(name, parentId) }
+                allFolders = withContext(Dispatchers.IO) { projectRepository.folders() }
+            } },
+            onRenameFolder = { folder, name -> runProjectOperation {
+                withContext(Dispatchers.IO) { projectRepository.renameFolder(folder.id, name) }
+                allFolders = withContext(Dispatchers.IO) { projectRepository.folders() }
+            } },
+            onMoveProjects = { ids, target -> runProjectOperation {
+                withContext(Dispatchers.IO) { projectRepository.moveProjects(ids, target) }
+                loadGallery()
+            } },
+            onMergeProjects = { ids, name, fps, folderId -> runProjectOperation {
+                val merged = withContext(Dispatchers.IO) { projectRepository.mergeProjects(ids, name, fps, folderId) }
+                currentFolderId = folderId
+                loadGallery(merged.id)
+                withContext(Dispatchers.IO) { projectRepository.setActiveProjectId(merged.id) }
+                activeProjectId = merged.id
+                playbackFps = fps
+            } },
+            onBatchExport = { selected ->
+                runProjectOperation {
+                    val failures = mutableListOf<String>()
+                    selected.forEachIndexed { index, project ->
+                        projectMessage = "Exporting ${index + 1} of ${selected.size}: ${project.name}"
+                        try {
+                            withContext(Dispatchers.IO) {
+                                val store = projectRepository.frameStore(project)
+                                val frames = store.frames()
+                                Mp4Exporter.export(context, frames, Mp4Exporter.inspect(frames, store.playbackFps()), project.id) { percent ->
+                                    withContext(Dispatchers.Main) { projectMessage = "Exporting ${index + 1} of ${selected.size}: ${project.name} · $percent%" }
+                                }
+                            }
+                        } catch (failure: Exception) {
+                            failures += project.name
+                        }
+                    }
+                    projectMessage = if (failures.isEmpty()) "Finished exporting ${selected.size} movies." else "Finished with ${failures.size} error(s): ${failures.joinToString()}"
+                }
+            },
+            onProjectAction = { project, action ->
+                when (action) {
+                    ProjectAction.PREVIEW, ProjectAction.EDIT, ProjectAction.EXPORT -> {
+                        persistenceScope.launch {
+                            withContext(Dispatchers.IO) { projectRepository.setActiveProjectId(project.id) }
+                            activeProjectId = project.id
+                            playbackFps = withContext(Dispatchers.IO) { projectRepository.frameStore(project).playbackFps() }
+                            refresh++
+                            previewMode = if (action == ProjectAction.EDIT) ModeDestination.EDIT else ModeDestination.PREVIEW
+                            if (action == ProjectAction.EXPORT) exportRequest++
+                            screen = AppScreen.PREVIEW
+                        }
+                    }
+                    ProjectAction.SHARE -> persistenceScope.launch {
+                        val existing = withContext(Dispatchers.IO) { findProjectExportUri(context, project.id) }
+                        if (existing != null) {
+                            shareMovieUri(existing)
+                        } else {
+                            pendingShareProjectId = project.id
+                            withContext(Dispatchers.IO) { projectRepository.setActiveProjectId(project.id) }
+                            activeProjectId = project.id
+                            playbackFps = withContext(Dispatchers.IO) { projectRepository.frameStore(project).playbackFps() }
+                            refresh++
+                            previewMode = ModeDestination.PREVIEW
+                            exportRequest++
+                            screen = AppScreen.PREVIEW
+                        }
+                    }
+                    ProjectAction.RENAME, ProjectAction.DUPLICATE, ProjectAction.DELETE -> Unit
+                }
+            },
+            onDeleteProjects = { selected -> runProjectOperation {
+                withContext(Dispatchers.IO) { projectRepository.deleteProjects(selected.map { it.id }.toSet()) }
+                loadGallery()
+            } }
         )
         AppScreen.CAMERA, AppScreen.TIMELAPSE -> {
             val timelapse = if (screen == AppScreen.TIMELAPSE) timelapseConfig else null
@@ -447,12 +553,22 @@ private fun StopMotionApp() {
             onStart = { config -> activeMode = ModeDestination.TIMELAPSE; timelapseConfig = config; message = null; screen = AppScreen.TIMELAPSE }
         )
         AppScreen.PREVIEW -> AnimationPreviewScreen(
+            projectId = activeProject?.id.orEmpty(),
             frames = snapshot.frames,
             fps = playbackFps,
+            confirmFrameDeletion = confirmFrameDeletion,
+            timelineZoomLevel = timelineZoomLevel,
             settingsMessage = settingsMessage,
             mode = previewMode,
             exportRequest = exportRequest,
             onExportRequestHandled = { exportRequest = 0 },
+            onMovieExported = { movie ->
+                if (pendingShareProjectId == activeProject?.id) {
+                    pendingShareProjectId = null
+                    shareMovieUri(movie.uri)
+                }
+            },
+            onExportAbandoned = { pendingShareProjectId = null },
             onOpenModes = { modesOpen = true },
             onFpsChange = { playbackFps = it },
             onSaveFps = { fps ->
@@ -471,9 +587,31 @@ private fun StopMotionApp() {
                     onDuplicated(updated.getOrNull(index + 1)?.id)
                 } }
             },
-            onDeleteFrame = { id -> frameStore?.let { store -> editFrames({ store.deleteFrame(id) }) } },
+            onDeleteFrames = { ids -> frameStore?.let { store -> editFrames({ store.deleteFrames(ids) }) } },
+            onSaveDeleteConfirmation = { enabled ->
+                confirmFrameDeletion = enabled
+                persistenceScope.launch { withContext(Dispatchers.IO) { frameStore?.saveDeleteConfirmationEnabled(enabled) } }
+            },
+            onSaveTimelineZoom = { level ->
+                timelineZoomLevel = level.coerceIn(0, 2)
+                persistenceScope.launch { withContext(Dispatchers.IO) { frameStore?.saveTimelineZoomLevel(timelineZoomLevel) } }
+            },
             onDurationChange = { id, duration -> frameStore?.let { store -> editFrames({ store.setDuration(id, duration) }) } },
             onSetAllDurations = { duration -> frameStore?.let { store -> editFrames({ store.setAllDurations(duration) }) } },
+            onSplitMovie = { cutIndex, partA, partB ->
+                val sourceId = activeProject?.id
+                if (sourceId != null) persistenceScope.launch {
+                    projectOperationBusy = true
+                    val result = withContext(Dispatchers.IO) { runCatching { projectRepository.splitProject(sourceId, cutIndex, partA, partB) } }
+                    projectOperationBusy = false
+                    if (result.isSuccess) {
+                        loadGallery()
+                        settingsMessage = "Both new movies were saved. The original is unchanged."
+                    } else {
+                        settingsMessage = result.exceptionOrNull()?.message ?: "The two movie parts could not be saved. Your original movie is unchanged."
+                    }
+                }
+            },
             onBackToCamera = { activeMode = ModeDestination.CAMERA; screen = AppScreen.CAMERA }
         )
         AppScreen.REVIEW -> {
@@ -490,6 +628,10 @@ private fun StopMotionApp() {
                 }
             )
         }
+        AppScreen.EFFECTS -> EffectsPlaceholderScreen(
+            onBack = { screen = AppScreen.GALLERY },
+            onOpenModes = { modesOpen = true }
+        )
     }
 
     ModesWheel(visible = modesOpen, active = activeMode, onDismiss = { modesOpen = false }, onSelect = ::navigateToMode)
@@ -513,7 +655,7 @@ private fun StopMotionApp() {
 
 }
 
-private enum class AppScreen { HOME, GALLERY, CAMERA, TIMELAPSE_SETUP, TIMELAPSE, PREVIEW, REVIEW }
+private enum class AppScreen { HOME, GALLERY, CAMERA, TIMELAPSE_SETUP, TIMELAPSE, PREVIEW, REVIEW, EFFECTS }
 
 private fun findLatestExportedMovieUri(context: Context): Uri? {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
@@ -530,6 +672,27 @@ private fun findLatestExportedMovieUri(context: Context): Uri? {
             "${MediaStore.MediaColumns.DATE_ADDED} DESC"
         )?.use { cursor ->
             if (cursor.moveToFirst()) ContentUris.withAppendedId(collection, cursor.getLong(0)) else null
+        }
+    }.getOrNull()
+}
+
+private fun findProjectExportUri(context: Context, projectId: String): Uri? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+    if (ProjectExportIdentity.fileNamePrefix(projectId) == null) return null
+    val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+    return runCatching {
+        context.contentResolver.query(
+            collection,
+            arrayOf(MediaStore.Video.Media._ID, MediaStore.MediaColumns.DISPLAY_NAME),
+            "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.MIME_TYPE}=? AND ${MediaStore.MediaColumns.IS_PENDING}=0",
+            arrayOf("${Environment.DIRECTORY_MOVIES}/AnimationWorkshop/", "video/mp4"),
+            "${MediaStore.MediaColumns.DATE_ADDED} DESC"
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(1) ?: continue
+                if (ProjectExportIdentity.belongsToProject(name, projectId)) return@use ContentUris.withAppendedId(collection, cursor.getLong(0))
+            }
+            null
         }
     }.getOrNull()
 }
@@ -631,6 +794,23 @@ private fun PermissionScreen(onRequest: () -> Unit, onBack: () -> Unit) {
         Text("We need camera access so you can take your movie frames.", color = Ink, fontSize = 16.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 16.dp))
         Button(onClick = onRequest, colors = ButtonDefaults.buttonColors(containerColor = Teal)) { Text("Allow camera") }
         Text("Go back", color = Teal, modifier = Modifier.clickable(onClick = onBack).padding(16.dp))
+    }
+}
+
+@Composable
+private fun EffectsPlaceholderScreen(onBack: () -> Unit, onOpenModes: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().background(Color(0xFFFFFDF5)).windowInsetsPadding(WindowInsets.statusBars).padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("✨", fontSize = 54.sp)
+        Text("Effects / 特效", color = Ink, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 12.dp))
+        Text("Coming Soon! / 即將推出！", color = Teal, fontSize = 21.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+        Row(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(onClick = onBack, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Teal)) { Text("Projects / 專案") }
+            Button(onClick = onOpenModes, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Coral)) { Text("MODES") }
+        }
     }
 }
 

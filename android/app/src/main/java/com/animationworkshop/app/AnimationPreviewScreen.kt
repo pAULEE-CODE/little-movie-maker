@@ -11,6 +11,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -32,15 +34,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateSetOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -48,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -88,26 +94,43 @@ private object FrameBitmapCache : LruCache<String, Bitmap>(12 * 1024) {
 
 @Composable
 internal fun AnimationPreviewScreen(
+    projectId: String,
     frames: List<AnimationFrame>,
     fps: Int,
+    confirmFrameDeletion: Boolean,
+    timelineZoomLevel: Int,
     settingsMessage: String?,
     mode: ModeDestination,
     exportRequest: Int,
     onExportRequestHandled: () -> Unit,
+    onMovieExported: (ExportedMovie) -> Unit,
+    onExportAbandoned: () -> Unit,
     onOpenModes: () -> Unit,
     onFpsChange: (Int) -> Unit,
     onSaveFps: (Int) -> Unit,
     onMoveFrame: (String, Int) -> Unit,
     onDuplicateFrame: (String, (String?) -> Unit) -> Unit,
-    onDeleteFrame: (String) -> Unit,
+    onDeleteFrames: (Set<String>) -> Unit,
+    onSaveDeleteConfirmation: (Boolean) -> Unit,
+    onSaveTimelineZoom: (Int) -> Unit,
     onDurationChange: (String, Int) -> Unit,
     onSetAllDurations: (Int) -> Unit,
+    onSplitMovie: (Int, String, String) -> Unit,
     onBackToCamera: () -> Unit
 ) {
     val frameCount = frames.size
     var selectedId by remember { mutableStateOf(frames.firstOrNull()?.id) }
     var isPlaying by remember { mutableStateOf(false) }
-    var pendingDeleteId by remember { mutableStateOf<String?>(null) }
+    var pendingDeleteIds by remember { mutableStateOf<Set<String>?>(null) }
+    var doNotAskAgain by remember { mutableStateOf(false) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var rangeSelectionMode by remember { mutableStateOf(false) }
+    val selectedIds = remember { mutableStateSetOf<String>() }
+    var rangeAnchor by remember { mutableIntStateOf(0) }
+    var splitCutIndex by remember { mutableIntStateOf(1) }
+    var splitPartAName by remember(projectId) { mutableStateOf("Part A") }
+    var splitPartBName by remember(projectId) { mutableStateOf("Part B") }
+    var showSplitDialog by remember { mutableStateOf(false) }
     var allDuration by remember { mutableIntStateOf(1) }
     var confirmApplyAll by remember { mutableStateOf(false) }
     val selectedIndex = frames.indexOfFirst { it.id == selectedId }.let { if (it < 0) 0 else it }
@@ -122,13 +145,29 @@ internal fun AnimationPreviewScreen(
     var exportState by remember { mutableStateOf<MovieExportState>(MovieExportState.Idle) }
     var exportJob by remember { mutableStateOf<Job?>(null) }
 
+    fun applyDeletion(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        selectedId = FrameSequenceOperations.selectedAfterDeletion(frames, frames.filterNot { it.id in ids }, selectedIndex, ids)
+        selectedIds.clear()
+        selectionMode = false
+        rangeSelectionMode = false
+        onDeleteFrames(ids)
+    }
+
+    fun requestDelete(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        isPlaying = false
+        if (confirmFrameDeletion) pendingDeleteIds = ids else applyDeletion(ids)
+    }
+
     DisposableEffect(view, isPlaying) {
         view.keepScreenOn = isPlaying
         onDispose { view.keepScreenOn = false }
     }
 
-    LaunchedEffect(frames) {
+    LaunchedEffect(frames, projectId) {
         if (frames.none { it.id == selectedId }) selectedId = frames.firstOrNull()?.id
+        selectedIds.retainAll(frames.mapTo(mutableSetOf()) { it.id })
     }
 
     LaunchedEffect(exportRequest) {
@@ -161,7 +200,7 @@ internal fun AnimationPreviewScreen(
         }
     }
 
-    LaunchedEffect(selectedId, frameCount) {
+    LaunchedEffect(selectedId, frameCount, timelineZoomLevel) {
         if (frameCount > 0) listState.animateScrollToItem(selectedIndex.coerceIn(0, frameCount - 1))
     }
 
@@ -282,7 +321,29 @@ internal fun AnimationPreviewScreen(
         } else {
             LazyRow(
                 state = listState,
-                modifier = Modifier.fillMaxWidth().height(112.dp),
+                modifier = Modifier.fillMaxWidth().height(if (selectionMode) 142.dp else 112.dp)
+                    .pointerInput(selectionMode, rangeSelectionMode, frames) {
+                        if (selectionMode && rangeSelectionMode) {
+                            detectDragGestures(
+                                onDragStart = { start ->
+                                    val index = listState.layoutInfo.visibleItemsInfo.firstOrNull { start.x >= it.offset && start.x < it.offset + it.size }?.index
+                                    if (index != null) {
+                                        rangeAnchor = index
+                                        selectedIds.addAll(FrameSequenceOperations.rangeSelection(frames.map { it.id }, rangeAnchor, index))
+                                        selectedId = frames.getOrNull(index)?.id
+                                    }
+                                },
+                                onDrag = { change, _ ->
+                                    val index = listState.layoutInfo.visibleItemsInfo.firstOrNull { change.position.x >= it.offset && change.position.x < it.offset + it.size }?.index
+                                    if (index != null) {
+                                        selectedIds.addAll(FrameSequenceOperations.rangeSelection(frames.map { it.id }, rangeAnchor, index))
+                                        selectedId = frames.getOrNull(index)?.id
+                                    }
+                                    change.consume()
+                                }
+                            )
+                        }
+                    },
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 itemsIndexed(frames, key = { _, frame -> frame.id }) { index, frame ->
@@ -290,12 +351,45 @@ internal fun AnimationPreviewScreen(
                         frame = frame,
                         frameNumber = index + 1,
                         selected = index == selectedIndex,
+                        multiSelected = frame.id in selectedIds,
+                        width = when (timelineZoomLevel.coerceIn(0, 2)) { 0 -> 64.dp; 2 -> 128.dp; else -> 92.dp },
                         onClick = {
                             isPlaying = false
+                            if (selectionMode) {
+                                if (frame.id in selectedIds) selectedIds.remove(frame.id) else selectedIds.add(frame.id)
+                                selectedId = frame.id
+                                rangeAnchor = index
+                            } else selectedId = frame.id
+                        },
+                        onLongClick = {
+                            isPlaying = false
+                            selectionMode = true
+                            rangeSelectionMode = false
+                            selectedIds.clear()
+                            selectedIds.add(frame.id)
                             selectedId = frame.id
+                            rangeAnchor = index
                         }
                     )
                 }
+            }
+        }
+
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Timeline", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { onSaveTimelineZoom((timelineZoomLevel - 1).coerceAtLeast(0)) }, enabled = timelineZoomLevel > 0) { Text("− Zoom") }
+                Text("${timelineZoomLevel + 1}/3", color = Color.White.copy(alpha = .8f), fontSize = 12.sp)
+                TextButton(onClick = { onSaveTimelineZoom((timelineZoomLevel + 1).coerceAtMost(2)) }, enabled = timelineZoomLevel < 2) { Text("+ Zoom") }
+            }
+        }
+
+        if (selectionMode) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("${selectedIds.size} selected", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                TextButton(onClick = { rangeSelectionMode = !rangeSelectionMode }) { Text(if (rangeSelectionMode) "Scroll" else "Select range") }
+                TextButton(onClick = { selectionMode = false; rangeSelectionMode = false; selectedIds.clear() }) { Text("Done") }
+                Button(onClick = { requestDelete(selectedIds.toSet()) }, enabled = selectedIds.isNotEmpty(), colors = ButtonDefaults.buttonColors(containerColor = PreviewCoral)) { Text("Delete selected") }
             }
         }
 
@@ -308,7 +402,7 @@ internal fun AnimationPreviewScreen(
             Button(onClick = { onMoveFrame(selectedFrame.id, -1) }, enabled = selectedIndex > 0, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("← Move", maxLines = 1) }
             Button(onClick = { onMoveFrame(selectedFrame.id, 1) }, enabled = selectedIndex < frameCount - 1, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("Move →", maxLines = 1) }
             Button(onClick = { onDuplicateFrame(selectedFrame.id) { duplicateId -> if (duplicateId != null) selectedId = duplicateId } }, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("Copy", maxLines = 1) }
-            Button(onClick = { isPlaying = false; pendingDeleteId = selectedFrame.id }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = PreviewCoral), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("Delete", maxLines = 1) }
+            Button(onClick = { isPlaying = false; requestDelete(setOf(selectedFrame.id)) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = PreviewCoral), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("Delete", maxLines = 1) }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Hold", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
@@ -319,6 +413,11 @@ internal fun AnimationPreviewScreen(
             Spacer(Modifier.width(8.dp))
             Text("frames", color = Color.White.copy(alpha = .75f), fontSize = 13.sp)
         }
+        if (frameCount > 1) {
+            TextButton(onClick = { splitCutIndex = (selectedIndex + 1).coerceIn(1, frameCount - 1); showSplitDialog = true }, modifier = Modifier.align(Alignment.Start)) {
+                Text("Split Movie / 分割影片")
+            }
+        }
         Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("All frames", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             Button(onClick = { allDuration = (allDuration - 1).coerceAtLeast(1) }, enabled = allDuration > 1, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 3.dp)) { Text("−") }
@@ -328,6 +427,9 @@ internal fun AnimationPreviewScreen(
         }
     }
 
+    if (!confirmFrameDeletion) {
+        TextButton(onClick = { onSaveDeleteConfirmation(true) }, modifier = Modifier.align(Alignment.Start)) { Text("Turn delete confirmation on") }
+    }
     Button(
         onClick = { showExportConfirmation = true },
         enabled = frameCount > 0 && exportState !is MovieExportState.Running,
@@ -340,7 +442,7 @@ internal fun AnimationPreviewScreen(
     }
     }
 
-    val frameToDelete = frames.firstOrNull { it.id == pendingDeleteId }
+    val framesToDelete = frames.filter { it.id in pendingDeleteIds.orEmpty() }
     if (confirmApplyAll && frameCount > 0) {
         AlertDialog(
             onDismissRequest = { confirmApplyAll = false },
@@ -350,13 +452,60 @@ internal fun AnimationPreviewScreen(
             dismissButton = { TextButton(onClick = { confirmApplyAll = false }) { Text("Cancel") } }
         )
     }
-    if (pendingDeleteId != null && frameToDelete != null) {
+    if (pendingDeleteIds != null && framesToDelete.isNotEmpty() && confirmFrameDeletion) {
         AlertDialog(
-            onDismissRequest = { pendingDeleteId = null },
-            title = { Text("Delete this frame?") },
-            text = { Text("This photo will be removed from your animation.") },
-            confirmButton = { TextButton(onClick = { pendingDeleteId = null; onDeleteFrame(frameToDelete.id) }) { Text("Delete") } },
-            dismissButton = { TextButton(onClick = { pendingDeleteId = null }) { Text("Keep") } }
+            onDismissRequest = { pendingDeleteIds = null; doNotAskAgain = false },
+            title = { Text(if (framesToDelete.size == 1) "Delete this frame?" else "Delete ${framesToDelete.size} frames?") },
+            text = {
+                Column {
+                    Text(if (framesToDelete.size == 1) "This photo will be removed from your animation." else "These photos will be removed from your animation.")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = doNotAskAgain, onCheckedChange = { doNotAskAgain = it })
+                        Text("Do not ask again / 不再詢問")
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { val ids = pendingDeleteIds.orEmpty(); pendingDeleteIds = null; if (doNotAskAgain) onSaveDeleteConfirmation(false); doNotAskAgain = false; applyDeletion(ids) }) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = { pendingDeleteIds = null; doNotAskAgain = false }) { Text("Keep") } }
+        )
+    }
+    if (pendingDeleteIds != null && framesToDelete.isNotEmpty() && !confirmFrameDeletion) {
+        LaunchedEffect(pendingDeleteIds) { val ids = pendingDeleteIds.orEmpty(); pendingDeleteIds = null; applyDeletion(ids) }
+    }
+
+    if (showSplitDialog && frameCount > 1) {
+        AlertDialog(
+            onDismissRequest = { showSplitDialog = false },
+            title = { Text("Split this movie / 分割影片") },
+            text = {
+                Column {
+                    Text("Part A uses frames 1–$splitCutIndex. Part B starts at frame ${splitCutIndex + 1}. The original movie stays unchanged.")
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(splitCutIndex - 1, splitCutIndex).forEachIndexed { side, frameIndex ->
+                            val cutFrame = frames.getOrNull(frameIndex)
+                            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(if (side == 0) "Last in Part A" else "First in Part B", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                if (cutFrame != null) FramePhoto(
+                                    file = cutFrame.file,
+                                    contentDescription = "Frame ${frameIndex + 1} at the split point",
+                                    modifier = Modifier.fillMaxWidth().height(72.dp).padding(top = 4.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black),
+                                    contentScale = ContentScale.Fit,
+                                    maximumDimensionPx = 240
+                                )
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { splitCutIndex = (splitCutIndex - 1).coerceAtLeast(1) }, enabled = splitCutIndex > 1) { Text("‹ Cut") }
+                        Text("${splitCutIndex} | ${splitCutIndex + 1}", fontWeight = FontWeight.Bold)
+                        TextButton(onClick = { splitCutIndex = (splitCutIndex + 1).coerceAtMost(frameCount - 1) }, enabled = splitCutIndex < frameCount - 1) { Text("Cut ›") }
+                    }
+                    OutlinedTextField(value = splitPartAName, onValueChange = { splitPartAName = it.take(60) }, label = { Text("Part A name") }, singleLine = true)
+                    OutlinedTextField(value = splitPartBName, onValueChange = { splitPartBName = it.take(60) }, label = { Text("Part B name") }, singleLine = true)
+                }
+            },
+            confirmButton = { TextButton(onClick = { showSplitDialog = false; onSplitMovie(splitCutIndex, splitPartAName, splitPartBName) }, enabled = splitPartAName.isNotBlank() && splitPartBName.isNotBlank()) { Text("Create both movies") } },
+            dismissButton = { TextButton(onClick = { showSplitDialog = false }) { Text("Cancel") } }
         )
     }
 
@@ -364,18 +513,19 @@ internal fun AnimationPreviewScreen(
         ExportConfirmationDialog(
             frames = frames,
             fps = fps,
-            onCancel = { showExportConfirmation = false },
+            onCancel = { showExportConfirmation = false; onExportAbandoned() },
             onExport = { configuration ->
                 showExportConfirmation = false
                 exportState = MovieExportState.Running(0)
                 exportJob = exportScope.launch {
                     try {
                         val movie = withContext(Dispatchers.IO) {
-                            Mp4Exporter.export(context, frames, configuration) { percent ->
+                            Mp4Exporter.export(context, frames, configuration, projectId) { percent ->
                                 withContext(Dispatchers.Main) { exportState = MovieExportState.Running(percent) }
                             }
                         }
                         exportState = MovieExportState.Complete(movie)
+                        onMovieExported(movie)
                     } catch (_: CancellationException) {
                         exportState = MovieExportState.Idle
                     } catch (exception: Exception) {
@@ -420,7 +570,7 @@ internal fun AnimationPreviewScreen(
             onDismissRequest = { exportState = MovieExportState.Idle },
             title = { Text("Export could not finish") },
             text = { Text(state.message) },
-            confirmButton = { TextButton(onClick = { exportState = MovieExportState.Idle }) { Text("OK") } }
+            confirmButton = { TextButton(onClick = { exportState = MovieExportState.Idle; onExportAbandoned() }) { Text("OK") } }
         )
     }
 }
@@ -467,17 +617,25 @@ private fun ExportConfirmationDialog(
 }
 
 @Composable
-private fun FrameThumbnail(frame: AnimationFrame, frameNumber: Int, selected: Boolean, onClick: () -> Unit) {
+private fun FrameThumbnail(
+    frame: AnimationFrame,
+    frameNumber: Int,
+    selected: Boolean,
+    multiSelected: Boolean,
+    width: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
     Column(
-        modifier = Modifier.width(92.dp).height(106.dp)
+        modifier = Modifier.width(width).height(106.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) PreviewTeal else Color(0xFF2B3A36))
+            .background(if (multiSelected) Color(0xFFFFB64D) else if (selected) PreviewTeal else Color(0xFF2B3A36))
             .border(
-                width = if (selected) 3.dp else 1.dp,
-                color = if (selected) Color.White else Color.White.copy(alpha = .25f),
+                width = if (selected || multiSelected) 3.dp else 1.dp,
+                color = if (selected || multiSelected) Color.White else Color.White.copy(alpha = .25f),
                 shape = RoundedCornerShape(12.dp)
             )
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -488,6 +646,9 @@ private fun FrameThumbnail(frame: AnimationFrame, frameNumber: Int, selected: Bo
             contentScale = ContentScale.Fit,
             maximumDimensionPx = 360
         )
+        if (multiSelected) {
+            Text("✓", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.End).padding(5.dp))
+        }
         Text(
             "$frameNumber   ×${frame.duration}",
             color = Color.White,

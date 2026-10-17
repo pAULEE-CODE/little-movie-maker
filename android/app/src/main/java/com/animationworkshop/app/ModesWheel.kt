@@ -53,6 +53,14 @@ internal enum class ModeDestination(val label: String, val icon: ModeIcon, val c
     ADVANCED("Advanced\n進階", ModeIcon.ADVANCED, Color(0xFF8FAD55))
 }
 
+private val HubDestinations = listOf(
+    ModeDestination.CAMERA,
+    ModeDestination.TIMELAPSE,
+    ModeDestination.EDIT,
+    ModeDestination.PROJECTS,
+    ModeDestination.EFFECTS
+)
+
 internal enum class ModeIcon { CAMERA, TIMER, PLAY, SCISSORS, FILM, FOLDER, EFFECTS, SHARE, ADVANCED }
 
 @Composable
@@ -64,7 +72,7 @@ internal fun ModesWheel(
 ) {
     BackHandler(enabled = visible, onBack = onDismiss)
     BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-        val wheelSize = min(maxWidth.value, maxHeight.value * 0.86f).dp.coerceAtMost(480.dp)
+        val wheelSize = min(maxWidth.value * 0.96f, maxHeight.value * 0.82f).dp.coerceAtMost(480.dp)
         val buttonSize = (wheelSize * 0.19f).coerceIn(52.dp, 82.dp)
         val radius = wheelSize * 0.37f
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -76,13 +84,17 @@ internal fun ModesWheel(
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.52f)).clickable(onClick = onDismiss))
                     Box(Modifier.size(wheelSize), contentAlignment = Alignment.Center) {
-                        ModeDestination.entries.forEachIndexed { index, destination ->
-                            val angle = Math.toRadians(-90.0 + index * 360.0 / ModeDestination.entries.size)
+                        HubDestinations.forEachIndexed { index, destination ->
+                            val angle = Math.toRadians(-90.0 + index * 360.0 / HubDestinations.size)
                             val dx = radius * cos(angle).toFloat()
                             val dy = radius * sin(angle).toFloat()
                             ModeWheelButton(
                                 destination = destination,
-                                selected = active == destination,
+                                selected = when (active) {
+                                    ModeDestination.PREVIEW, ModeDestination.EXPORT -> destination == ModeDestination.EDIT
+                                    ModeDestination.SHARE -> destination == ModeDestination.PROJECTS
+                                    else -> active == destination
+                                },
                                 size = buttonSize,
                                 modifier = Modifier.offset(x = dx, y = dy),
                                 onClick = { onSelect(destination) }

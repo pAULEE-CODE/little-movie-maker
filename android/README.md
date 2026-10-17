@@ -30,7 +30,7 @@ After Android source changes, build with the PowerShell procedure above before r
 
 ## Private Google Drive test builds
 
-Use `build-test-apk.ps1` for a debug build that uploads only after Gradle succeeds and a nonempty APK is present. It reads the app's `versionName` and uploads a uniquely timestamped file such as `LittleMovieMaker-test-20261012-090014-123-v1.1.apk` to the private **Little Movie Maker — Test Builds** folder. Previous builds are retained. The script verifies the upload by listing the destination folder. Failed builds and incomplete APKs are never uploaded.
+Use `build-test-apk.ps1` for a debug build that uploads only after Gradle succeeds and a nonempty APK is present. It reads the app's `versionName` and `versionCode` and uploads a uniquely timestamped file that includes the tested source commit, for example `LittleMovieMaker-test-20261017-120014-123-v1.2-test1-code3-a1b2c3d4.apk`, to the private **Little Movie Maker — Test Builds** folder. Previous builds are retained. The script verifies the upload by listing the destination folder. Failed builds and incomplete APKs are never uploaded.
 
 The script uses the `gdrive` remote from [rclone](https://rclone.org/drive/). Install rclone, then run `rclone config`, create a remote named `gdrive` of type `drive`, and complete Google's browser sign-in with the account that owns the test-build folder. Keep rclone's configuration in its default user profile location (`%APPDATA%\rclone\rclone.conf`); do not copy credentials into this repository. The uploader only writes a new file into the existing folder and does not change sharing permissions. The folder is owned by `paulee6868@gmail.com` and has no public/link permission.
 
@@ -39,6 +39,8 @@ From the project root, run:
 ```powershell
 & .\build-test-apk.ps1
 ```
+
+When building from a source snapshot whose Git `HEAD` does not identify the tested commit, pass it explicitly with `-CommitId <short-commit>` so the uploaded filename still identifies the exact source revision.
 
 The process-scoped Android Studio JDK and `TEMP`/`TMP` overrides are applied by the script. If rclone or its Drive sign-in is not available, the script stops with setup instructions before building. For a build without upload, use the debug-build command above; `.gitignore` excludes APK files so they cannot be committed accidentally.
 
