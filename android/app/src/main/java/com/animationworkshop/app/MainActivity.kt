@@ -427,6 +427,7 @@ private fun StopMotionApp(
         persistenceScope.launch {
             val sources = mutableListOf<java.io.File>()
             var destination: java.io.File? = null
+            var compositeRecorded = false
             suspend fun captureTo(file: java.io.File): Boolean = suspendCancellableCoroutine { continuation ->
                 val options = ImageCapture.OutputFileOptions.Builder(file).build()
                 runCatching {
@@ -445,8 +446,11 @@ private fun StopMotionApp(
                 repeat(boundedCount) { index ->
                     if (!shouldContinue()) error("Light-trail capture was stopped")
                     val source = withContext(Dispatchers.IO) { store.newStagingCapture() }
+                    if (!captureTo(source)) {
+                        withContext(Dispatchers.IO) { store.discardStagingCapture(source) }
+                        error("A light-trail source photo could not be captured")
+                    }
                     sources.add(source)
-                    if (!captureTo(source)) error("A light-trail source photo could not be captured")
                     onProgress(index + 1)
                     if (index + 1 < boundedCount) delay(180L)
                 }
@@ -455,16 +459,25 @@ private fun StopMotionApp(
                 withContext(Dispatchers.IO) { LightTrailStacker.stack(sources, destination!!) }
                 if (!shouldContinue()) error("Light-trail capture was stopped")
                 withContext(Dispatchers.IO) { store.recordCapturedFrame(destination!!) }
+                compositeRecorded = true
                 refresh++
                 message = null
                 onFinished(true)
-            } catch (failure: Exception) {
+            } catch (failure: Throwable) {
                 destination?.delete()
-                if (shouldContinue()) message = failure.message?.takeIf { it != "Light-trail capture was stopped" }
-                    ?: "Light-trail stacking failed. Check storage and try again."
+                val preserved = withContext(Dispatchers.IO) {
+                    sources.count { source -> runCatching { store.preserveStagingCapture(source) }.getOrDefault(false) }
+                }
+                android.util.Log.e("LightTrails", "Stack failed; preserved $preserved of ${sources.size} captured source photos", failure)
+                if (shouldContinue()) message = buildString {
+                    append(failure.message?.takeIf { it != "Light-trail capture was stopped" }
+                        ?: "Light-trail stacking failed. Check storage and try again.")
+                    if (preserved > 0) append(" $preserved original photos were saved to the movie.")
+                }
+                refresh++
                 onFinished(false)
             } finally {
-                withContext(Dispatchers.IO) { sources.forEach { it.delete() } }
+                if (compositeRecorded) withContext(Dispatchers.IO) { sources.forEach(store::discardStagingCapture) }
             }
         }
     }

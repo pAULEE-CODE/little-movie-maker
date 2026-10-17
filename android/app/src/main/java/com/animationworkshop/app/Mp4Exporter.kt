@@ -13,6 +13,7 @@ import android.media.MediaCodecList
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import android.media.MediaMetadataRetriever
 import android.media.ExifInterface
 import android.net.Uri
 import android.os.Build
@@ -216,14 +217,30 @@ internal object Mp4Exporter {
                     sourceIndex++
                 }
                 if (cachedSourceIndex != sourceIndex) {
-                    val decoded = decodeSampledFrame(frames[sourceIndex].file, configuration.width, configuration.height)
+                    // Export owns and recycles these bitmaps. Never borrow a preview-cache entry,
+                    // because recycling a cached bitmap invalidates LruCache's size accounting.
+                    val decoded = decodeSampledFrame(
+                        frames[sourceIndex].file,
+                        configuration.width,
+                        configuration.height,
+                        cacheResult = false
+                    )
                         ?: error("Frame ${sourceIndex + 1} could not be read. Check that the photograph is still available.")
-                    val source = rotateMovieFrame(decoded, rotationDegrees)
-                    if (source !== decoded) decoded.recycle()
-                    val fitted = fitToOutput(source, configuration.width, configuration.height)
-                    if (fitted !== source) source.recycle()
-                    yuvFrame = bitmapToYuv420(fitted, pixelScratch)
-                    fitted.recycle()
+                    try {
+                        val source = rotateMovieFrame(decoded, rotationDegrees)
+                        try {
+                            val fitted = fitToOutput(source, configuration.width, configuration.height)
+                            try {
+                                yuvFrame = bitmapToYuv420(fitted, pixelScratch)
+                            } finally {
+                                if (fitted !== source) fitted.recycle()
+                            }
+                        } finally {
+                            if (source !== decoded) source.recycle()
+                        }
+                    } finally {
+                        decoded.recycle()
+                    }
                     cachedSourceIndex = sourceIndex
                 }
 
@@ -385,7 +402,7 @@ internal object Mp4Exporter {
             check(sampleCount == expectedSamples) { "MP4 sample count ($sampleCount) differs from the encoder output ($expectedSamples)." }
             check(declaredDurationUs > 0L) { "The MP4 container reports a zero or missing video duration." }
             val durationUs = declaredDurationUs
-            val decodeResult = decodeFirstSample(context, uri, format)
+            val decodeResult = decodeFirstSample(context, uri)
             return "mime=${format.getString(MediaFormat.KEY_MIME)}, dimensions=${format.getInteger(MediaFormat.KEY_WIDTH)}x${format.getInteger(MediaFormat.KEY_HEIGHT)}, durationUs=$durationUs, samples=$sampleCount, syncSamples=$syncSamples, codecConfigBytes=$csdBytes, firstFrameDecode=$decodeResult, bytes=${descriptor.statSize}"
         } finally {
             runCatching { extractor.release() }
@@ -393,67 +410,24 @@ internal object Mp4Exporter {
         }
     }
 
-    private fun decodeFirstSample(context: Context, uri: Uri, format: MediaFormat): String {
-        val descriptor = context.contentResolver.openFileDescriptor(uri, "r") ?: error("Could not open the MP4 for decoder validation.")
-        val extractor = MediaExtractor()
-        var decoder: MediaCodec? = null
-        var decoderStarted = false
+    private fun decodeFirstSample(context: Context, uri: Uri): String {
+        val retriever = MediaMetadataRetriever()
         try {
-            extractor.setDataSource(descriptor.fileDescriptor)
-            val track = (0 until extractor.trackCount).firstOrNull { index ->
-                extractor.getTrackFormat(index).getString(MediaFormat.KEY_MIME) == MIME_TYPE
-            } ?: error("The MP4 AVC track could not be reopened for decoder validation.")
-            extractor.selectTrack(track)
-            extractor.seekTo(0L, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
-            val samplePts = extractor.sampleTime
-            check(samplePts >= 0L) { "The MP4 does not contain a readable initial AVC sample." }
-
-            val activeDecoder = MediaCodec.createDecoderByType(MIME_TYPE)
-            decoder = activeDecoder
-            activeDecoder.configure(format, null, null, 0)
-            activeDecoder.start()
-            decoderStarted = true
-            val bufferInfo = MediaCodec.BufferInfo()
-            var sampleQueued = false
-            var eosQueued = false
-            var firstFrameDecoded = false
-            var decoderOutputFormat = "not reported"
-            val deadline = android.os.SystemClock.elapsedRealtime() + 5_000L
-
-            while (!firstFrameDecoded && android.os.SystemClock.elapsedRealtime() < deadline) {
-                val inputIndex = activeDecoder.dequeueInputBuffer(TIMEOUT_US)
-                if (inputIndex >= 0 && !eosQueued) {
-                    val input = activeDecoder.getInputBuffer(inputIndex) ?: error("The H.264 decoder did not provide an input buffer.")
-                    if (!sampleQueued) {
-                        input.clear()
-                        val sampleSize = extractor.readSampleData(input, 0)
-                        check(sampleSize > 0) { "The first AVC sample could not be read for decoding." }
-                        activeDecoder.queueInputBuffer(inputIndex, 0, sampleSize, samplePts, 0)
-                        sampleQueued = true
-                        Log.i(TAG, "Decoder validation queued first sample: ptsUs=$samplePts, size=$sampleSize")
-                    } else {
-                        activeDecoder.queueInputBuffer(inputIndex, 0, 0, samplePts + 1_000_000L / 24, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                        eosQueued = true
-                    }
-                }
-
-                val outputIndex = activeDecoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
-                when {
-                    outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> decoderOutputFormat = activeDecoder.outputFormat.toString()
-                    outputIndex >= 0 -> {
-                        if (bufferInfo.size > 0) firstFrameDecoded = true
-                        activeDecoder.releaseOutputBuffer(outputIndex, false)
-                    }
-                }
+            retriever.setDataSource(context, uri)
+            check(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO) == "yes") {
+                "The MP4 player could not find its video track."
             }
-            check(firstFrameDecoded) { "The MP4 AVC sync sample did not decode within five seconds." }
-            Log.i(TAG, "AVC decoder validation passed: codec=${activeDecoder.name}, outputFormat=$decoderOutputFormat")
-            return "decoded by ${activeDecoder.name}"
+            val frame = retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: error("The MP4 player could not decode the initial AVC sync frame.")
+            try {
+                check(frame.width > 0 && frame.height > 0) { "The MP4 player returned an empty decoded frame." }
+                Log.i(TAG, "AVC playback validation passed: MediaMetadataRetriever decoded ${frame.width}x${frame.height}")
+                return "MediaMetadataRetriever decoded ${frame.width}x${frame.height}"
+            } finally {
+                frame.recycle()
+            }
         } finally {
-            runCatching { if (decoderStarted) decoder?.stop() }
-            runCatching { decoder?.release() }
-            runCatching { extractor.release() }
-            descriptor.close()
+            retriever.release()
         }
     }
 

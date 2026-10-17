@@ -13,11 +13,13 @@ internal data class AnimationFrame(val id: String, val file: File, val duration:
 internal class FrameStore(private val projectFolder: File) {
     private val manifest = AtomicFile(File(projectFolder, "frames.json"))
     private val pendingDelete = AtomicFile(File(projectFolder, ".pending-frame-deletion.json"))
+    private val activeStagingCaptures = mutableSetOf<String>()
 
     @Synchronized
     fun frames(): List<AnimationFrame> {
         if (!projectFolder.exists()) projectFolder.mkdirs()
         recoverPendingDeletion()
+        recoverAbandonedStagingCaptures()
         val entries = readManifest()
         val knownFiles = entries.map { it.file.name }.toSet()
         val unlisted = photoFiles().filterNot { it.name in knownFiles }.sortedBy { it.name }
@@ -39,7 +41,40 @@ internal class FrameStore(private val projectFolder: File) {
     @Synchronized
     fun newStagingCapture(): File {
         if (!projectFolder.exists() && !projectFolder.mkdirs()) error("Could not create the animation project folder")
-        return File(projectFolder, ".capture-${UUID.randomUUID()}.tmp")
+        return File(projectFolder, ".capture-${UUID.randomUUID()}.tmp").also { activeStagingCaptures += it.name }
+    }
+
+    /** Keep a successfully captured source photo as an ordinary frame if stacking fails. */
+    @Synchronized
+    fun preserveStagingCapture(file: File): Boolean {
+        activeStagingCaptures -= file.name
+        if (file.parentFile != projectFolder || !file.isFile || file.length() <= 0L) return false
+        val destination = nextFrame()
+        if (!file.renameTo(destination)) return false
+        // frames() discovers the renamed file even if writing the manifest fails.
+        recordCapturedFrame(destination)
+        return true
+    }
+
+    @Synchronized
+    fun discardStagingCapture(file: File) {
+        activeStagingCaptures -= file.name
+        file.delete()
+    }
+
+    /** A process death during stacking leaves staged photos on disk; restore them on next launch. */
+    private fun recoverAbandonedStagingCaptures() {
+        val abandoned = projectFolder.listFiles { file ->
+            file.isFile && file.name.startsWith(".capture-") && file.name.endsWith(".tmp") && file.name !in activeStagingCaptures
+        }?.sortedWith(compareBy<File>({ it.lastModified() }, { it.name })).orEmpty()
+        abandoned.forEach { file ->
+            if (file.length() <= 0L) {
+                file.delete()
+            } else {
+                val destination = nextFrame()
+                file.renameTo(destination)
+            }
+        }
     }
 
     @Synchronized
