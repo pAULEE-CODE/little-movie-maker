@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -106,7 +105,7 @@ internal fun ModesWheel(
                             Modifier.size(wheelSize * 0.24f).clip(CircleShape).background(Color(0xFFFFFDF5)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("Animation\nWorkshop", color = Color(0xFF23413C), fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
+                            LocalizedText("Animation\nWorkshop", color = Color(0xFF23413C), fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
                         }
                     }
                 }
@@ -132,8 +131,8 @@ private fun ModeWheelButton(
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
     ) {
         Canvas(Modifier.size(size * 0.37f)) { drawModeIcon(destination.icon, Color.White) }
-        Text(destination.label, color = Color.White, fontSize = if (size < 72.dp) 8.sp else 9.sp, lineHeight = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2)
-        if (selected) Text("HERE / 目前", color = Color.White.copy(alpha = .9f), fontSize = 6.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 7.sp, maxLines = 1)
+        LocalizedText(destination.label, color = Color.White, fontSize = if (size < 72.dp) 8.sp else 9.sp, lineHeight = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2)
+        if (selected) LocalizedText("HERE / 目前", color = Color.White.copy(alpha = .9f), fontSize = 6.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 7.sp, maxLines = 1)
     }
 }
 

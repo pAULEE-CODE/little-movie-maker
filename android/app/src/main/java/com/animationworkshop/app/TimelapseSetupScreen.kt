@@ -21,7 +21,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
@@ -89,75 +88,75 @@ internal fun TimelapseSetupScreen(onOpenModes: () -> Unit, onBack: () -> Unit, o
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).windowInsetsPadding(WindowInsets.statusBars).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("‹  Back", color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.clickable(onClick = onBack).padding(8.dp))
+            LocalizedText("‹  Back", color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.clickable(onClick = onBack).padding(8.dp))
             Spacer(Modifier.weight(1f))
-            Text("Timelapse", color = MaterialTheme.colorScheme.onBackground, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+            LocalizedText("Timelapse", color = MaterialTheme.colorScheme.onBackground, fontSize = 21.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
-            Text("MODES", color = MaterialTheme.colorScheme.onBackground, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.clickable(onClick = onOpenModes).padding(horizontal = 8.dp, vertical = 10.dp))
+            LocalizedText("MODES", color = MaterialTheme.colorScheme.onBackground, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.clickable(onClick = onOpenModes).padding(horizontal = 8.dp, vertical = 10.dp))
         }
         Spacer(Modifier.height(12.dp))
-        Text("Take a photo every…", color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        LocalizedText("Take a photo every…", color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, fontWeight = FontWeight.Bold)
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             intervals.forEach { seconds ->
-                Button(onClick = { interval = seconds; isCustom = false }, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 3.dp, vertical = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = if (!isCustom && interval == seconds) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, contentColor = if (!isCustom && interval == seconds) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)) { Text("${seconds}s") }
+                Button(onClick = { interval = seconds; isCustom = false }, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 3.dp, vertical = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = if (!isCustom && interval == seconds) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, contentColor = if (!isCustom && interval == seconds) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)) { LocalizedText("${seconds}s") }
             }
         }
-        Button(onClick = { isCustom = true }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), colors = ButtonDefaults.buttonColors(containerColor = if (isCustom) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, contentColor = if (isCustom) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)) { Text("Custom interval / 自訂間隔", maxLines = 1) }
+        Button(onClick = { isCustom = true }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), colors = ButtonDefaults.buttonColors(containerColor = if (isCustom) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, contentColor = if (isCustom) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)) { LocalizedText("Custom interval / 自訂間隔", maxLines = 1) }
         if (isCustom) {
-            OutlinedTextField(value = customInterval, onValueChange = { customInterval = it.filter(Char::isDigit) }, label = { Text("Seconds between photos") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = customInterval, onValueChange = { customInterval = it.filter(Char::isDigit) }, label = { LocalizedText("Seconds between photos") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.fillMaxWidth())
         }
         Spacer(Modifier.height(12.dp))
         TextButton(onClick = { showExposure = !showExposure }, modifier = Modifier.fillMaxWidth()) {
-            Text(if (showExposure) "− Exposure / 曝光" else "+ Exposure / 曝光（進階）", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            LocalizedText(if (showExposure) "− Exposure / 曝光" else "+ Exposure / 曝光（進階）", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
         }
         if (showExposure) {
             if (!exposureCapabilities.supported || shutterChoices.isEmpty()) {
-                Text("Manual shutter control is not supported by this camera. Automatic exposure will be used.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                LocalizedText("Manual shutter control is not supported by this camera. Automatic exposure will be used.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
             } else {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Manual exposure / 手動曝光", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                        Text("Uses the rear camera's reported shutter and ISO ranges.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        LocalizedText("Manual exposure / 手動曝光", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        LocalizedText("Uses the rear camera's reported shutter and ISO ranges.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(checked = manualExposureEnabled, onCheckedChange = { manualExposureEnabled = it })
                 }
                 if (manualExposureEnabled) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Shutter", fontWeight = FontWeight.Bold)
-                        TextButton(onClick = { shutterIndex = (shutterIndex - 1).coerceAtLeast(0) }, enabled = shutterIndex > 0) { Text("−") }
-                        Text(shutterLabel(shutterChoices[shutterIndex.coerceIn(shutterChoices.indices)]), fontWeight = FontWeight.Bold)
-                        TextButton(onClick = { shutterIndex = (shutterIndex + 1).coerceAtMost(shutterChoices.lastIndex) }, enabled = shutterIndex < shutterChoices.lastIndex) { Text("+") }
+                        LocalizedText("Shutter", fontWeight = FontWeight.Bold)
+                        TextButton(onClick = { shutterIndex = (shutterIndex - 1).coerceAtLeast(0) }, enabled = shutterIndex > 0) { LocalizedText("−") }
+                        LocalizedText(shutterLabel(shutterChoices[shutterIndex.coerceIn(shutterChoices.indices)]), fontWeight = FontWeight.Bold)
+                        TextButton(onClick = { shutterIndex = (shutterIndex + 1).coerceAtMost(shutterChoices.lastIndex) }, enabled = shutterIndex < shutterChoices.lastIndex) { LocalizedText("+") }
                     }
                     val isoRange = exposureCapabilities.isoRange!!
                     val minIso = isoRange.lower.coerceAtLeast(1)
                     val maxIso = isoRange.upper.coerceAtLeast(minIso)
-                    Text("ISO · $iso", fontWeight = FontWeight.Bold)
+                    LocalizedText("ISO · $iso", fontWeight = FontWeight.Bold)
                     androidx.compose.material3.Slider(value = iso.coerceIn(minIso, maxIso).toFloat(), onValueChange = { iso = it.toInt().coerceIn(minIso, maxIso) }, valueRange = minIso.toFloat()..maxIso.toFloat())
-                    Text("Choose a capture interval longer than the shutter plus 0.3 seconds.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                    LocalizedText("Choose a capture interval longer than the shutter plus 0.3 seconds.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                 }
             }
         }
-        Text("Light trails / 光軌疊加", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+        LocalizedText("Light trails / 光軌疊加", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(1, 5, 10, 20).forEach { count ->
                 Button(onClick = { stackSourceCount = count }, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 5.dp), colors = ButtonDefaults.buttonColors(containerColor = if (stackSourceCount == count) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, contentColor = if (stackSourceCount == count) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)) {
-                    Text(if (count == 1) "Off" else "×$count", maxLines = 1)
+                    LocalizedText(if (count == 1) "Off" else "×$count", maxLines = 1)
                 }
             }
         }
-        if (stackSourceCount > 1) Text("Combines $stackSourceCount source photos into each movie frame. A stable camera position gives the best results.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.padding(top = 3.dp))
-        if (stackSourceCount > 1) Text("Choose an interval long enough for the full group; camera processing may extend it.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
-        Text("Stop automatically…", color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+        if (stackSourceCount > 1) LocalizedText("Combines $stackSourceCount source photos into each movie frame. A stable camera position gives the best results.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.padding(top = 3.dp))
+        if (stackSourceCount > 1) LocalizedText("Choose an interval long enough for the full group; camera processing may extend it.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+        LocalizedText("Stop automatically…", color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(TimelapseStopCondition.FRAME_COUNT to "Frame count", TimelapseStopCondition.RECORDING_DURATION to "Duration", TimelapseStopCondition.CLOCK_TIME to "Clock time").forEach { (choice, label) ->
-                Button(onClick = { condition = choice }, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = if (condition == choice) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, contentColor = if (condition == choice) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)) { Text(label, fontSize = 11.sp, maxLines = 1) }
+                Button(onClick = { condition = choice }, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = if (condition == choice) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant, contentColor = if (condition == choice) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)) { LocalizedText(label, fontSize = 11.sp, maxLines = 1) }
             }
         }
         when (condition) {
-            TimelapseStopCondition.FRAME_COUNT -> OutlinedTextField(value = framesText, onValueChange = { framesText = it.filter(Char::isDigit) }, label = { Text("Number of photographs") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+            TimelapseStopCondition.FRAME_COUNT -> OutlinedTextField(value = framesText, onValueChange = { framesText = it.filter(Char::isDigit) }, label = { LocalizedText("Number of photographs") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
             TimelapseStopCondition.RECORDING_DURATION -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = hoursText, onValueChange = { hoursText = it.filter(Char::isDigit) }, label = { Text("Hours") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.weight(1f))
-                OutlinedTextField(value = minutesText, onValueChange = { minutesText = it.filter(Char::isDigit) }, label = { Text("Minutes") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(value = hoursText, onValueChange = { hoursText = it.filter(Char::isDigit) }, label = { LocalizedText("Hours") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(value = minutesText, onValueChange = { minutesText = it.filter(Char::isDigit) }, label = { LocalizedText("Minutes") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.weight(1f))
             }
             TimelapseStopCondition.CLOCK_TIME -> Button(onClick = {
                 val current = LocalDateTime.ofInstant(Instant.ofEpochMilli(stopAtMillis), zone)
@@ -167,10 +166,10 @@ internal fun TimelapseSetupScreen(onOpenModes: () -> Unit, onBack: () -> Unit, o
                         stopAtMillis = LocalDateTime.of(date, LocalTime.of(hour, minute)).atZone(zone).toInstant().toEpochMilli()
                     }, current.hour, current.minute, false).show()
                 }, current.year, current.monthValue - 1, current.dayOfMonth).show()
-            }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) { Text("Stop at $stopLabel", maxLines = 1) }
+            }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) { LocalizedText("Stop at $stopLabel", maxLines = 1) }
         }
         Spacer(Modifier.weight(1f))
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 8.dp)) }
+        error?.let { LocalizedText(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 8.dp)) }
         Button(onClick = {
             val chosenInterval = if (isCustom) customInterval.toIntOrNull() else interval
             val count = framesText.toIntOrNull()
@@ -193,6 +192,6 @@ internal fun TimelapseSetupScreen(onOpenModes: () -> Unit, onBack: () -> Unit, o
                 error = null
                 onStart(TimelapseConfig(chosenInterval!!, condition, count ?: 0, duration.toInt(), stopAtMillis, countdownSoundEnabled, manualExposureEnabled, selectedExposure ?: 0L, iso, stackSourceCount))
             }
-        }, modifier = Modifier.fillMaxWidth().height(58.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("Start Timelapse  ▶", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+        }, modifier = Modifier.fillMaxWidth().height(58.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { LocalizedText("Start Timelapse  ▶", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
     }
 }

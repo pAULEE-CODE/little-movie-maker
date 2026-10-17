@@ -59,6 +59,23 @@ class FrameSequenceOperationsTest {
 
         val decreased = FrameSequenceOperations.adjustDurations(increased, setOf("a", "c"), -1)
         assertEquals(listOf(1, 4, 9), decreased.map { it.duration })
+
+        val contiguous = FrameSequenceOperations.adjustDurations(source, setOf("a", "b"), 1)
+        assertEquals(listOf(2, 5, 10), contiguous.map { it.duration })
+        val mixed = FrameSequenceOperations.adjustDurations(source, setOf("a", "b"), -1)
+        assertEquals(listOf(1, 3, 10), mixed.map { it.duration })
+    }
+
+    @Test
+    fun outputDimensionsFollowAllFourMovieRotations() {
+        assertEquals(1280 to 720, movieOutputDimensions(1920, 1080, 0))
+        assertEquals(720 to 1280, movieOutputDimensions(1920, 1080, 90))
+        assertEquals(1280 to 720, movieOutputDimensions(1920, 1080, 180))
+        assertEquals(720 to 1280, movieOutputDimensions(1920, 1080, 270))
+        assertEquals(720 to 1280, movieOutputDimensions(1080, 1920, 0))
+        assertEquals(1280 to 720, movieOutputDimensions(1080, 1920, 90))
+        assertEquals(720 to 1280, movieOutputDimensions(1080, 1920, 180))
+        assertEquals(1280 to 720, movieOutputDimensions(1080, 1920, 270))
     }
 
     @Test

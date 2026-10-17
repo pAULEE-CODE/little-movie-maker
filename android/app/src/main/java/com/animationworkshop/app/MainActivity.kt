@@ -60,7 +60,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.animation.core.Animatable
@@ -113,15 +112,28 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
+            var languageMode by remember {
+                mutableStateOf(getSharedPreferences("animation_workshop", Context.MODE_PRIVATE).getString("language_mode", "BILINGUAL") ?: "BILINGUAL")
+            }
             var themeMode by remember {
                 mutableStateOf(getSharedPreferences("animation_workshop", Context.MODE_PRIVATE).getString("theme_mode", "SYSTEM") ?: "SYSTEM")
             }
             AnimationWorkshopTheme(themePreference = themeMode, dynamicColor = false) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    StopMotionApp(themeMode = themeMode, onThemeModeChange = { selected ->
-                        themeMode = selected
-                        getSharedPreferences("animation_workshop", Context.MODE_PRIVATE).edit().putString("theme_mode", selected).apply()
-                    })
+                    androidx.compose.runtime.CompositionLocalProvider(LocalUiLanguageMode provides languageMode) {
+                        StopMotionApp(
+                            themeMode = themeMode,
+                            onThemeModeChange = { selected ->
+                                themeMode = selected
+                                getSharedPreferences("animation_workshop", Context.MODE_PRIVATE).edit().putString("theme_mode", selected).apply()
+                            },
+                            languageMode = languageMode,
+                            onLanguageModeChange = { selected ->
+                                languageMode = selected
+                                getSharedPreferences("animation_workshop", Context.MODE_PRIVATE).edit().putString("language_mode", selected).apply()
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -131,7 +143,12 @@ class MainActivity : ComponentActivity() {
 private data class ProjectSnapshot(val frames: List<AnimationFrame>, val latestBitmap: Bitmap?)
 
 @Composable
-private fun StopMotionApp(themeMode: String, onThemeModeChange: (String) -> Unit) {
+private fun StopMotionApp(
+    themeMode: String,
+    onThemeModeChange: (String) -> Unit,
+    languageMode: String,
+    onLanguageModeChange: (String) -> Unit
+) {
     val context = LocalContext.current
     val projectRepository = remember { ProjectRepository(context) }
     var projects by remember { mutableStateOf<List<ProjectGalleryItem>>(emptyList()) }
@@ -734,6 +751,8 @@ private fun StopMotionApp(themeMode: String, onThemeModeChange: (String) -> Unit
         AppScreen.SETTINGS -> SettingsScreen(
             themeMode = themeMode,
             onThemeModeChange = onThemeModeChange,
+            languageMode = languageMode,
+            onLanguageModeChange = onLanguageModeChange,
             onAutomaticPreviewChange = { automaticProjectPreview = it },
             onBack = { screen = AppScreen.GALLERY },
             onOpenModes = { modesOpen = true },
@@ -750,17 +769,17 @@ private fun StopMotionApp(themeMode: String, onThemeModeChange: (String) -> Unit
     BackHandler(enabled = modesOpen) { modesOpen = false }
     if (showTimelapseNavigationConfirm) AlertDialog(
         onDismissRequest = { showTimelapseNavigationConfirm = false; pendingMode = null },
-        title = { Text("Stop timelapse and switch?") },
-        text = { Text("The current timelapse will stop. Photos already captured will stay in your project.") },
-        confirmButton = { TextButton(onClick = ::confirmPendingMode) { Text("Stop and continue") } },
-        dismissButton = { TextButton(onClick = { showTimelapseNavigationConfirm = false; pendingMode = null }) { Text("Keep recording") } }
+        title = { LocalizedText("Stop timelapse and switch?") },
+        text = { LocalizedText("The current timelapse will stop. Photos already captured will stay in your project.") },
+        confirmButton = { TextButton(onClick = ::confirmPendingMode) { LocalizedText("Stop and continue") } },
+        dismissButton = { TextButton(onClick = { showTimelapseNavigationConfirm = false; pendingMode = null }) { LocalizedText("Keep recording") } }
     )
     modeNotice?.let { notice ->
         AlertDialog(
             onDismissRequest = { modeNotice = null },
-            title = { Text("Animation Workshop / 動畫工作室") },
-            text = { Text(notice) },
-            confirmButton = { TextButton(onClick = { modeNotice = null }) { Text("OK / 好") } }
+            title = { LocalizedText("Animation Workshop / 動畫工作室") },
+            text = { LocalizedText(notice) },
+            confirmButton = { TextButton(onClick = { modeNotice = null }) { LocalizedText("OK / 好") } }
         )
     }
     }
@@ -835,13 +854,16 @@ private fun HomeScreen(
         val artHeight = 1858f * scale
         val artLeft = (maxWidth.value - artWidth) / 2f
         val artTop = (maxHeight.value - artHeight) / 2f
+        val modesAccessibilityLabel = uiText("MODES. Open mode selection")
+        val continueAccessibilityLabel = uiText("Continue Animation, 繼續製作動畫")
+        val latestAccessibilityLabel = uiText("Your latest frame, frame $frameCount. Tap to review.")
         fun left(px: Float, width: Float) = (artLeft + px * scale).dp
         fun top(px: Float, height: Float) = (artTop + px * scale).dp
         fun size(px: Float) = (px * scale).dp
 
         Image(
             painter = androidx.compose.ui.res.painterResource(R.drawable.little_movie_maker_splash),
-            contentDescription = "Little Movie Maker cartoon workshop with children making stop-motion animations",
+            contentDescription = uiText("Little Movie Maker cartoon workshop with children making stop-motion animations"),
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Fit
         )
@@ -849,17 +871,17 @@ private fun HomeScreen(
         // Transparent semantic hit areas sit over the matching illustrated buttons.
         Box(
             Modifier.offset(x = left(292f, 268f), y = top(48f, 110f)).size(size(268f), size(110f))
-                .semantics { contentDescription = "MODES. Open mode selection"; role = Role.Button }
+                .semantics { contentDescription = modesAccessibilityLabel; role = Role.Button }
                 .clickable(onClick = onOpenModes)
         )
         Box(
             Modifier.offset(x = left(139f, 574f), y = top(1288f, 246f)).size(size(574f), size(246f))
-                .semantics { contentDescription = "Continue Animation, 繼續製作動畫"; role = Role.Button }
+                .semantics { contentDescription = continueAccessibilityLabel; role = Role.Button }
                 .clickable(onClick = onContinueAnimation)
         )
         Box(
             Modifier.offset(x = left(109f, 634f), y = top(1545f, 250f)).size(size(634f), size(250f))
-                .semantics { contentDescription = "Your latest frame, frame $frameCount. Tap to review."; role = Role.Button }
+                .semantics { contentDescription = latestAccessibilityLabel; role = Role.Button }
                 .clickable(enabled = frameCount > 0, onClick = onReview)
         )
 
@@ -870,9 +892,9 @@ private fun HomeScreen(
                 .clip(RoundedCornerShape(16.dp)).background(Color(0xFFFFFDF5))
         , contentAlignment = Alignment.Center) {
             if (latestBitmap != null) {
-                Image(bitmap = latestBitmap.asImageBitmap(), contentDescription = "Latest animation photograph", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                Image(bitmap = latestBitmap.asImageBitmap(), contentDescription = uiText("Latest animation photograph"), modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             } else {
-                Text("📷\nNo frames yet", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                LocalizedText("📷\nNo frames yet", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             }
         }
 
@@ -881,7 +903,7 @@ private fun HomeScreen(
                 .clip(RoundedCornerShape(8.dp)).background(Color(0xF8FFFDF5)),
             contentAlignment = Alignment.CenterStart
         ) {
-            Text(
+            LocalizedText(
                 if (frameCount > 0) "Frame $frameCount  ·  Tap to review" else "No frames yet  ·  Start a movie",
                 color = Color(0xFF15566B), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold,
                 maxLines = 2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 3.dp)
@@ -889,7 +911,7 @@ private fun HomeScreen(
         }
 
         if (permissionDenied) {
-            Text(
+            LocalizedText(
                 "Camera permission is needed to take pictures.", color = MaterialTheme.colorScheme.onBackground, fontSize = 11.sp, fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xEEFFFDF5)).padding(horizontal = 12.dp, vertical = 6.dp)
@@ -901,11 +923,11 @@ private fun HomeScreen(
 @Composable
 private fun PermissionScreen(onRequest: () -> Unit, onBack: () -> Unit) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text("📷", fontSize = 58.sp)
-        Text("Let’s use the camera", color = MaterialTheme.colorScheme.onBackground, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
-        Text("We need camera access so you can take your movie frames.", color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 16.dp))
-        Button(onClick = onRequest, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("Allow camera") }
-        Text("Go back", color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable(onClick = onBack).padding(16.dp))
+        LocalizedText("📷", fontSize = 58.sp)
+        LocalizedText("Let’s use the camera", color = MaterialTheme.colorScheme.onBackground, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
+        LocalizedText("We need camera access so you can take your movie frames.", color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 16.dp))
+        Button(onClick = onRequest, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { LocalizedText("Allow camera") }
+        LocalizedText("Go back", color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable(onClick = onBack).padding(16.dp))
     }
 }
 
@@ -916,12 +938,12 @@ private fun EffectsPlaceholderScreen(onBack: () -> Unit, onOpenModes: () -> Unit
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("✨", fontSize = 54.sp)
-        Text("Effects / 特效", color = MaterialTheme.colorScheme.onBackground, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 12.dp))
-        Text("Coming Soon! / 即將推出！", color = MaterialTheme.colorScheme.primary, fontSize = 21.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+        LocalizedText("✨", fontSize = 54.sp)
+        LocalizedText("Effects / 特效", color = MaterialTheme.colorScheme.onBackground, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 12.dp))
+        LocalizedText("Coming Soon! / 即將推出！", color = MaterialTheme.colorScheme.primary, fontSize = 21.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
         Row(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = onBack, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("Projects / 專案") }
-            Button(onClick = onOpenModes, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("MODES") }
+            Button(onClick = onBack, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { LocalizedText("Projects / 專案") }
+            Button(onClick = onOpenModes, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { LocalizedText("MODES") }
         }
     }
 }
@@ -1139,23 +1161,23 @@ private fun CameraScreen(
 
     Column(Modifier.fillMaxSize().background(Color(0xFF182522)).windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 16.dp, vertical = 8.dp).padding(bottom = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.fillMaxWidth().height(44.dp)) {
-            Text("‹  Back", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.align(Alignment.CenterStart).clickable(onClick = ::requestBack).padding(8.dp))
-            Text("MODES", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.primary).clickable(onClick = onOpenModes).padding(horizontal = 17.dp, vertical = 9.dp))
-            Text(if (timelapseConfig == null) "FRAME ${frameCount + 1}" else "TIMELAPSE", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.CenterEnd))
+            LocalizedText("‹  Back", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.align(Alignment.CenterStart).clickable(onClick = ::requestBack).padding(8.dp))
+            LocalizedText("MODES", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.primary).clickable(onClick = onOpenModes).padding(horizontal = 17.dp, vertical = 9.dp))
+            LocalizedText(if (timelapseConfig == null) "FRAME ${frameCount + 1}" else "TIMELAPSE", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.CenterEnd))
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
             if (timelapseConfig == null) {
-                Text("Preview ▶", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable(onClick = onOpenPreview).padding(horizontal = 14.dp, vertical = 5.dp))
-                Text("Timelapse ⏱", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primary).clickable(onClick = onOpenTimelapseSetup).padding(horizontal = 11.dp, vertical = 6.dp))
+                LocalizedText("Preview ▶", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable(onClick = onOpenPreview).padding(horizontal = 14.dp, vertical = 5.dp))
+                LocalizedText("Timelapse ⏱", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primary).clickable(onClick = onOpenTimelapseSetup).padding(horizontal = 11.dp, vertical = 6.dp))
             } else {
-                Text("Manual camera", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primary).clickable(onClick = { requestBack(toManual = true) }).padding(horizontal = 12.dp, vertical = 6.dp))
+                LocalizedText("Manual camera", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primary).clickable(onClick = { requestBack(toManual = true) }).padding(horizontal = 12.dp, vertical = 6.dp))
             }
         }
         Spacer(Modifier.height(8.dp))
         Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(24.dp)).background(Color.Black), contentAlignment = Alignment.Center) {
             AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
             CornerMarkers(Modifier.fillMaxSize().padding(18.dp))
-            if (cameraError != null) Text(cameraError!!, color = Color.White, textAlign = TextAlign.Center, modifier = Modifier.padding(28.dp))
+            if (cameraError != null) LocalizedText(cameraError!!, color = Color.White, textAlign = TextAlign.Center, modifier = Modifier.padding(28.dp))
         }
         if (timelapseConfig != null) {
             val config = timelapseConfig
@@ -1164,26 +1186,26 @@ private fun CameraScreen(
                 TimelapseStopCondition.RECORDING_DURATION -> "${formatTimelapseTime((config.durationMinutes * 60_000L - elapsedDisplay).coerceAtLeast(0L))} left"
                 TimelapseStopCondition.CLOCK_TIME -> "${formatTimelapseTime((config.stopAtMillis - System.currentTimeMillis()).coerceAtLeast(0L))} until stop time"
             }
-            Text(when (timelapseStatus) { TimelapseStatus.RECORDING -> "● Recording"; TimelapseStatus.PAUSED -> "Ⅱ Paused"; TimelapseStatus.FINISHED -> "✓ Finished" }, color = if (timelapseStatus == TimelapseStatus.RECORDING) Color(0xFFFF8A80) else Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-            Text("$timelapseCaptured movie frames  ·  ${formatTimelapseTime(elapsedDisplay)} elapsed", color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 3.dp))
-            if (config.stackSourceCount > 1) Text("${timelapseCaptured * config.stackSourceCount} source photos captured", color = Color.White.copy(alpha = .8f), fontSize = 12.sp)
-            timelapseProgress?.let { Text(it, color = Color(0xFFFFD3CC), fontSize = 13.sp) }
-            if (message != null) Text(message, color = Color(0xFFFFD3CC), fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 3.dp))
-            if (timelapseStatus != TimelapseStatus.FINISHED) Text(remaining, color = Color.White.copy(alpha = .8f), fontSize = 13.sp)
+            LocalizedText(when (timelapseStatus) { TimelapseStatus.RECORDING -> "● Recording"; TimelapseStatus.PAUSED -> "Ⅱ Paused"; TimelapseStatus.FINISHED -> "✓ Finished" }, color = if (timelapseStatus == TimelapseStatus.RECORDING) Color(0xFFFF8A80) else Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+            LocalizedText("$timelapseCaptured movie frames  ·  ${formatTimelapseTime(elapsedDisplay)} elapsed", color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 3.dp))
+            if (config.stackSourceCount > 1) LocalizedText("${timelapseCaptured * config.stackSourceCount} source photos captured", color = Color.White.copy(alpha = .8f), fontSize = 12.sp)
+            timelapseProgress?.let { LocalizedText(it, color = Color(0xFFFFD3CC), fontSize = 13.sp) }
+            if (message != null) LocalizedText(message, color = Color(0xFFFFD3CC), fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 3.dp))
+            if (timelapseStatus != TimelapseStatus.FINISHED) LocalizedText(remaining, color = Color.White.copy(alpha = .8f), fontSize = 13.sp)
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (timelapseStatus == TimelapseStatus.RECORDING) Button(onClick = { activeElapsedMillis += SystemClock.elapsedRealtime() - activeSegmentStart; elapsedDisplay = activeElapsedMillis; timelapseStatus = TimelapseStatus.PAUSED }, modifier = Modifier.weight(1f).height(54.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("Pause Ⅱ") }
-                if (timelapseStatus == TimelapseStatus.PAUSED) Button(onClick = { activeSegmentStart = SystemClock.elapsedRealtime(); timelapseStatus = TimelapseStatus.RECORDING }, modifier = Modifier.weight(1f).height(54.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("Resume ▶") }
-                if (timelapseStatus != TimelapseStatus.FINISHED) Button(onClick = ::finishTimelapse, modifier = Modifier.weight(1f).height(54.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("STOP", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
-                if (timelapseStatus == TimelapseStatus.FINISHED) Button(onClick = onTimelapseFinished, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("Back to camera") }
+                if (timelapseStatus == TimelapseStatus.RECORDING) Button(onClick = { activeElapsedMillis += SystemClock.elapsedRealtime() - activeSegmentStart; elapsedDisplay = activeElapsedMillis; timelapseStatus = TimelapseStatus.PAUSED }, modifier = Modifier.weight(1f).height(54.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { LocalizedText("Pause Ⅱ") }
+                if (timelapseStatus == TimelapseStatus.PAUSED) Button(onClick = { activeSegmentStart = SystemClock.elapsedRealtime(); timelapseStatus = TimelapseStatus.RECORDING }, modifier = Modifier.weight(1f).height(54.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { LocalizedText("Resume ▶") }
+                if (timelapseStatus != TimelapseStatus.FINISHED) Button(onClick = ::finishTimelapse, modifier = Modifier.weight(1f).height(54.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { LocalizedText("STOP", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+                if (timelapseStatus == TimelapseStatus.FINISHED) Button(onClick = onTimelapseFinished, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { LocalizedText("Back to camera") }
             }
-        } else if (message != null) Text(message, color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
-        else Text(cameraError ?: "Move a little, then take a picture!", color = Color.White.copy(alpha = .85f), fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))
+        } else if (message != null) LocalizedText(message, color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
+        else LocalizedText(cameraError ?: "Move a little, then take a picture!", color = Color.White.copy(alpha = .85f), fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))
         if (timelapseConfig == null) Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             if (latestBitmap != null) {
                 BitmapImage(latestBitmap, Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).border(2.dp, Color.White, RoundedCornerShape(12.dp)).clickable(onClick = onReview))
             } else {
                 Box(Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = .12f)), contentAlignment = Alignment.Center) {
-                    Text("1st\nphoto", color = Color.White, fontSize = 11.sp, textAlign = TextAlign.Center)
+                    LocalizedText("1st\nphoto", color = Color.White, fontSize = 11.sp, textAlign = TextAlign.Center)
                 }
             }
             Box(
@@ -1197,13 +1219,13 @@ private fun CameraScreen(
             ) {
                 Box(Modifier.size(21.dp).clip(CircleShape).background(Color.White.copy(alpha = .92f)))
             }
-            Text("${frameCount} 📸", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(64.dp), textAlign = TextAlign.End)
+            LocalizedText("${frameCount} 📸", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(64.dp), textAlign = TextAlign.End)
         }
-        else if (timelapseStatus == TimelapseStatus.FINISHED) Text("Your photos are saved in this project.", color = Color.White.copy(alpha = .8f), modifier = Modifier.padding(10.dp))
-        else Text("Taking a photo every ${timelapseConfig.intervalSeconds} seconds", color = Color.White.copy(alpha = .8f), modifier = Modifier.padding(10.dp))
+        else if (timelapseStatus == TimelapseStatus.FINISHED) LocalizedText("Your photos are saved in this project.", color = Color.White.copy(alpha = .8f), modifier = Modifier.padding(10.dp))
+        else LocalizedText("Taking a photo every ${timelapseConfig.intervalSeconds} seconds", color = Color.White.copy(alpha = .8f), modifier = Modifier.padding(10.dp))
     }
 
-    if (showLeaveWarning) AlertDialog(onDismissRequest = { showLeaveWarning = false }, title = { Text("Stop this timelapse?") }, text = { Text("Leaving stops the recording. Photos already taken stay in your project.") }, confirmButton = { TextButton(onClick = { showLeaveWarning = false; finishTimelapse(); if (leaveToManual) onTimelapseFinished() else onBack() }) { Text(if (leaveToManual) "Stop and switch" else "Stop and leave") } }, dismissButton = { TextButton(onClick = { showLeaveWarning = false }) { Text("Keep recording") } })
+    if (showLeaveWarning) AlertDialog(onDismissRequest = { showLeaveWarning = false }, title = { LocalizedText("Stop this timelapse?") }, text = { LocalizedText("Leaving stops the recording. Photos already taken stay in your project.") }, confirmButton = { TextButton(onClick = { showLeaveWarning = false; finishTimelapse(); if (leaveToManual) onTimelapseFinished() else onBack() }) { LocalizedText(if (leaveToManual) "Stop and switch" else "Stop and leave") } }, dismissButton = { TextButton(onClick = { showLeaveWarning = false }) { LocalizedText("Keep recording") } })
 }
 
 private enum class TimelapseStatus { RECORDING, PAUSED, FINISHED }
@@ -1244,19 +1266,19 @@ private fun CornerMarkers(modifier: Modifier = Modifier) {
 private fun ReviewScreen(image: Bitmap?, frameNumber: Int, frameCount: Int, onOpenModes: () -> Unit, onBack: () -> Unit, onOpenCamera: () -> Unit) {
     Column(Modifier.fillMaxSize().background(Color(0xFF182522)).windowInsetsPadding(WindowInsets.statusBars).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("‹  Back", color = Color.White, fontSize = 17.sp, modifier = Modifier.clickable(onClick = onBack).padding(8.dp))
+            LocalizedText("‹  Back", color = Color.White, fontSize = 17.sp, modifier = Modifier.clickable(onClick = onBack).padding(8.dp))
             Spacer(Modifier.weight(1f))
-            Text("Your photo", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            LocalizedText("Your photo", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
-            Text("MODES", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primary).clickable(onClick = onOpenModes).padding(horizontal = 8.dp, vertical = 8.dp))
+            LocalizedText("MODES", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primary).clickable(onClick = onOpenModes).padding(horizontal = 8.dp, vertical = 8.dp))
         }
         Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = 16.dp).clip(RoundedCornerShape(20.dp)).background(Color.Black), contentAlignment = Alignment.Center) {
             if (image != null) BitmapImage(image, Modifier.fillMaxSize(), androidx.compose.ui.layout.ContentScale.Fit)
-            else Text("Photo is loading…", color = Color.White)
+            else LocalizedText("Photo is loading…", color = Color.White)
         }
-        Text("Frame $frameNumber of $frameCount", color = Color.White.copy(alpha = .8f), fontSize = 15.sp, modifier = Modifier.padding(bottom = 12.dp))
+        LocalizedText("Frame $frameNumber of $frameCount", color = Color.White.copy(alpha = .8f), fontSize = 15.sp, modifier = Modifier.padding(bottom = 12.dp))
         Button(onClick = onOpenCamera, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
-            Text("Back to camera  📷", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            LocalizedText("Back to camera  📷", fontSize = 17.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -1269,7 +1291,7 @@ private fun BitmapImage(
 ) {
     androidx.compose.foundation.Image(
         bitmap = bitmap.asImageBitmap(),
-        contentDescription = "Most recent animation photo",
+        contentDescription = uiText("Most recent animation photo"),
         modifier = modifier,
         contentScale = contentScale
     )

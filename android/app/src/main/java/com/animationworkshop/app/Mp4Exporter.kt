@@ -56,12 +56,10 @@ internal object Mp4Exporter {
     private const val TIMEOUT_US = 10_000L
 
     fun inspect(frames: List<AnimationFrame>, fps: Int, rotationDegrees: Int = 0): ExportConfiguration {
-        val portrait = frames.asSequence().mapNotNull(::orientedDimensions).firstOrNull()?.let { dimensions ->
-            val rotated = rotationDegrees.mod(180) == 90
-            if (rotated) dimensions.first >= dimensions.second else dimensions.first < dimensions.second
-        } ?: false
-        val width = if (portrait) 720 else 1280
-        val height = if (portrait) 1280 else 720
+        val sourceDimensions = frames.asSequence().mapNotNull(::orientedDimensions).firstOrNull()
+        val (width, height) = sourceDimensions?.let { (sourceWidth, sourceHeight) ->
+            movieOutputDimensions(sourceWidth, sourceHeight, rotationDegrees)
+        } ?: (1280 to 720)
         val projectFps = fps.coerceIn(1, 24)
         val encoderFps = chooseEncoder(projectFps, width, height).second
         return ExportConfiguration(width, height, projectFps, encoderFps)

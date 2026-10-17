@@ -41,7 +41,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -221,7 +220,7 @@ internal fun AnimationPreviewScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(Modifier.fillMaxWidth().height(48.dp)) {
-            Text(
+            LocalizedText(
                 "‹  Camera",
                 color = MaterialTheme.colorScheme.onBackground,
                 fontSize = 16.sp,
@@ -233,7 +232,7 @@ internal fun AnimationPreviewScreen(
                 modifier = Modifier.align(Alignment.Center).height(42.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 30.dp, vertical = 7.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-            ) { Text("MODES", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold) }
+            ) { LocalizedText("MODES", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold) }
         }
 
         Box(
@@ -242,7 +241,7 @@ internal fun AnimationPreviewScreen(
             contentAlignment = Alignment.Center
         ) {
             if (frameCount == 0) {
-                Text(
+                LocalizedText(
                     "No photos yet\nGo back to the camera and take your first frame!",
                     color = Color.White.copy(alpha = .85f),
                     textAlign = TextAlign.Center,
@@ -252,7 +251,7 @@ internal fun AnimationPreviewScreen(
             } else {
                 FramePhoto(
                     file = frames[selectedIndex.coerceIn(0, frameCount - 1)].file,
-                    contentDescription = "Frame ${selectedIndex + 1}",
+                    contentDescription = uiText("Frame ${selectedIndex + 1}"),
                     modifier = Modifier.fillMaxSize().padding(8.dp),
                     contentScale = ContentScale.Fit,
                     maximumDimensionPx = 1024,
@@ -261,7 +260,7 @@ internal fun AnimationPreviewScreen(
             }
         }
 
-        Text(
+        LocalizedText(
             if (frameCount == 0) "Frame 0 of 0" else "Frame ${selectedIndex + 1} of $frameCount   ·   ×${selectedFrame?.duration ?: 1}",
             color = MaterialTheme.colorScheme.onBackground,
             fontSize = 15.sp,
@@ -270,7 +269,7 @@ internal fun AnimationPreviewScreen(
         )
         if (frameCount > 0) {
             val movieSeconds = frames.sumOf { it.duration.coerceIn(1, 10) } / fps.coerceIn(1, 24).toDouble()
-            Text("Movie length: ${String.format(Locale.US, "%.1f", movieSeconds)} seconds", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .75f), fontSize = 13.sp, modifier = Modifier.padding(bottom = 4.dp))
+            LocalizedText("Movie length: ${String.format(Locale.US, "%.1f", movieSeconds)} seconds", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .75f), fontSize = 13.sp, modifier = Modifier.padding(bottom = 4.dp))
         }
 
         Row(
@@ -286,14 +285,14 @@ internal fun AnimationPreviewScreen(
                 modifier = Modifier.weight(1f),
                 enabled = frameCount > 0 && selectedIndex > 0,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-            ) { Text("‹ Previous", maxLines = 1) }
+            ) { LocalizedText("‹ Previous", maxLines = 1) }
 
             Button(
                 onClick = { isPlaying = !isPlaying },
                 modifier = Modifier.weight(1f),
                 enabled = frameCount > 1,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-            ) { Text(if (isPlaying) "Pause Ⅱ" else "Play ▶", maxLines = 1, fontWeight = FontWeight.Bold) }
+            ) { LocalizedText(if (isPlaying) "Pause Ⅱ" else "Play ▶", maxLines = 1, fontWeight = FontWeight.Bold) }
 
             Button(
                 onClick = {
@@ -303,16 +302,16 @@ internal fun AnimationPreviewScreen(
                 modifier = Modifier.weight(1f),
                 enabled = frameCount > 0 && selectedIndex < frameCount - 1,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-            ) { Text("Next ›", maxLines = 1) }
+            ) { LocalizedText("Next ›", maxLines = 1) }
         }
 
         if (settingsMessage != null) {
-            Text(settingsMessage, color = MaterialTheme.colorScheme.error, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(bottom = 2.dp))
+            LocalizedText(settingsMessage, color = MaterialTheme.colorScheme.error, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(bottom = 2.dp))
         }
 
         if (frameCount == 0) {
             Box(Modifier.fillMaxWidth().height(112.dp), contentAlignment = Alignment.Center) {
-                Text("Your photos will appear here", color = Color.White.copy(alpha = .65f), fontSize = 14.sp)
+                LocalizedText("Your photos will appear here", color = Color.White.copy(alpha = .65f), fontSize = 14.sp)
             }
         } else {
             LazyRow(
@@ -373,16 +372,16 @@ internal fun AnimationPreviewScreen(
         }
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(if (selectionMode) "${selectedIds.size} selected" else "Timeline", color = MaterialTheme.colorScheme.onBackground, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            LocalizedText(if (selectionMode) "${selectedIds.size} selected" else "Timeline", color = MaterialTheme.colorScheme.onBackground, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { onSaveTimelineZoom((timelineZoomLevel - 1).coerceAtLeast(0)) }, enabled = timelineZoomLevel > 0) { Text("− Zoom") }
-                Text("${timelineZoomLevel + 1}/3", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .8f), fontSize = 12.sp)
-                TextButton(onClick = { onSaveTimelineZoom((timelineZoomLevel + 1).coerceAtMost(2)) }, enabled = timelineZoomLevel < 2) { Text("+ Zoom") }
+                TextButton(onClick = { onSaveTimelineZoom((timelineZoomLevel - 1).coerceAtLeast(0)) }, enabled = timelineZoomLevel > 0) { LocalizedText("− Zoom") }
+                LocalizedText("${timelineZoomLevel + 1}/3", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .8f), fontSize = 12.sp)
+                TextButton(onClick = { onSaveTimelineZoom((timelineZoomLevel + 1).coerceAtMost(2)) }, enabled = timelineZoomLevel < 2) { LocalizedText("+ Zoom") }
                 Box {
-                    TextButton(onClick = { showMoreMenu = true }) { Text("More / 更多") }
+                    TextButton(onClick = { showMoreMenu = true }) { LocalizedText("More / 更多") }
                     DropdownMenu(expanded = showMoreMenu, onDismissRequest = { showMoreMenu = false }) {
-                        DropdownMenuItem(text = { Text("Editor tools / 編輯工具") }, onClick = { showMoreMenu = false; showEditorTools = true })
-                        DropdownMenuItem(text = { Text("Export Movie / 匯出影片") }, enabled = frameCount > 0, onClick = { showMoreMenu = false; showExportConfirmation = true })
+                        DropdownMenuItem(text = { LocalizedText("Editor tools / 編輯工具") }, onClick = { showMoreMenu = false; showEditorTools = true })
+                        DropdownMenuItem(text = { LocalizedText("Export Movie / 匯出影片") }, enabled = frameCount > 0, onClick = { showMoreMenu = false; showExportConfirmation = true })
                     }
                 }
             }
@@ -390,10 +389,10 @@ internal fun AnimationPreviewScreen(
 
         if (selectionMode) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Select", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                TextButton(onClick = { rangeSelectionMode = !rangeSelectionMode }) { Text(if (rangeSelectionMode) "Scroll" else "Range") }
-                TextButton(onClick = { selectionMode = false; rangeSelectionMode = false; selectedIds.clear() }) { Text("Done") }
-                Button(onClick = { requestDelete(selectedIds.toSet()) }, enabled = selectedIds.isNotEmpty(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 5.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Delete") }
+                LocalizedText("Select", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                TextButton(onClick = { rangeSelectionMode = !rangeSelectionMode }) { LocalizedText(if (rangeSelectionMode) "Scroll" else "Range") }
+                TextButton(onClick = { selectionMode = false; rangeSelectionMode = false; selectedIds.clear() }) { LocalizedText("Done") }
+                Button(onClick = { requestDelete(selectedIds.toSet()) }, enabled = selectedIds.isNotEmpty(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 5.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { LocalizedText("Delete") }
             }
         }
 
@@ -403,46 +402,46 @@ internal fun AnimationPreviewScreen(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Button(onClick = { onDuplicateFrame(selectedFrame.id) { duplicateId -> if (duplicateId != null) selectedId = duplicateId } }, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("Copy", maxLines = 1) }
-            Button(onClick = { isPlaying = false; requestDelete(setOf(selectedFrame.id)) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("Delete", maxLines = 1) }
+            Button(onClick = { onDuplicateFrame(selectedFrame.id) { duplicateId -> if (duplicateId != null) selectedId = duplicateId } }, modifier = Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { LocalizedText("Copy", maxLines = 1) }
+            Button(onClick = { isPlaying = false; requestDelete(setOf(selectedFrame.id)) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { LocalizedText("Delete", maxLines = 1) }
         }
     }
 
     if (!confirmFrameDeletion) {
-        TextButton(onClick = { onSaveDeleteConfirmation(true) }, modifier = Modifier.align(Alignment.Start)) { Text("Turn delete confirmation on") }
+        TextButton(onClick = { onSaveDeleteConfirmation(true) }, modifier = Modifier.align(Alignment.Start)) { LocalizedText("Turn delete confirmation on") }
     }
     if (showEditorTools) AlertDialog(
         onDismissRequest = { showEditorTools = false },
-        title = { Text("More tools / 更多工具") },
+        title = { LocalizedText("More tools / 更多工具") },
         text = {
             Column(modifier = Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Speed · $fps FPS", fontWeight = FontWeight.Bold)
+                LocalizedText("Speed · $fps FPS", fontWeight = FontWeight.Bold)
                 Slider(value = fps.coerceIn(1,24).toFloat(), onValueChange = { onFpsChange(it.roundToInt().coerceIn(1,24)) }, onValueChangeFinished = { onSaveFps(fps.coerceIn(1,24)) }, valueRange = 1f..24f, steps = 22)
-                Text("Rotate movie · ${rotationDegrees}°", fontWeight = FontWeight.Bold)
-                Button(onClick = { onRotateMovie((rotationDegrees + 270) % 360) }, modifier = Modifier.fillMaxWidth()) { Text("Rotate Anticlockwise 90° / 逆時針旋轉90度") }
+                LocalizedText("Rotate movie · ${rotationDegrees}°", fontWeight = FontWeight.Bold)
+                Button(onClick = { onRotateMovie((rotationDegrees + 270) % 360) }, modifier = Modifier.fillMaxWidth()) { LocalizedText("Rotate Anticlockwise 90° / 逆時針旋轉90度") }
                 if (selectedFrame != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Move frame", modifier = Modifier.weight(1f))
-                        TextButton(onClick = { onMoveFrame(selectedFrame.id, -1) }, enabled = selectedIndex > 0) { Text("←") }
-                        TextButton(onClick = { onMoveFrame(selectedFrame.id, 1) }, enabled = selectedIndex < frameCount - 1) { Text("→") }
+                        LocalizedText("Move frame", modifier = Modifier.weight(1f))
+                        TextButton(onClick = { onMoveFrame(selectedFrame.id, -1) }, enabled = selectedIndex > 0) { LocalizedText("←") }
+                        TextButton(onClick = { onMoveFrame(selectedFrame.id, 1) }, enabled = selectedIndex < frameCount - 1) { LocalizedText("→") }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Selected hold · $holdDurationLabel (${holdTargetIds.size})", modifier = Modifier.weight(1f))
-                        TextButton(onClick = { onAdjustFrameDurations(holdTargetIds, -1) }, enabled = holdTargetFrames.any { it.duration > 1 }) { Text("−") }
-                        TextButton(onClick = { onAdjustFrameDurations(holdTargetIds, 1) }, enabled = holdTargetFrames.any { it.duration < 10 }) { Text("+") }
+                        LocalizedText("Selected hold · $holdDurationLabel (${holdTargetIds.size})", modifier = Modifier.weight(1f))
+                        TextButton(onClick = { onAdjustFrameDurations(holdTargetIds, -1) }, enabled = holdTargetFrames.any { it.duration > 1 }) { LocalizedText("−") }
+                        TextButton(onClick = { onAdjustFrameDurations(holdTargetIds, 1) }, enabled = holdTargetFrames.any { it.duration < 10 }) { LocalizedText("+") }
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("All holds · ×$allDuration", modifier = Modifier.weight(1f))
-                    TextButton(onClick = { allDuration = (allDuration - 1).coerceAtLeast(1) }, enabled = allDuration > 1) { Text("−") }
-                    TextButton(onClick = { allDuration = (allDuration + 1).coerceAtMost(10) }, enabled = allDuration < 10) { Text("+") }
-                    TextButton(onClick = { showEditorTools = false; confirmApplyAll = true }, enabled = frameCount > 0) { Text("Apply") }
+                    LocalizedText("All holds · ×$allDuration", modifier = Modifier.weight(1f))
+                    TextButton(onClick = { allDuration = (allDuration - 1).coerceAtLeast(1) }, enabled = allDuration > 1) { LocalizedText("−") }
+                    TextButton(onClick = { allDuration = (allDuration + 1).coerceAtMost(10) }, enabled = allDuration < 10) { LocalizedText("+") }
+                    TextButton(onClick = { showEditorTools = false; confirmApplyAll = true }, enabled = frameCount > 0) { LocalizedText("Apply") }
                 }
-                if (frameCount > 1) TextButton(onClick = { showEditorTools = false; splitCutIndex = (selectedIndex + 1).coerceIn(1, frameCount - 1); showSplitDialog = true }) { Text("Split Movie / 分割影片") }
-                TextButton(onClick = { showEditorTools = false; showExportConfirmation = true }, enabled = frameCount > 0) { Text("Export Movie / 匯出影片") }
+                if (frameCount > 1) TextButton(onClick = { showEditorTools = false; splitCutIndex = (selectedIndex + 1).coerceIn(1, frameCount - 1); showSplitDialog = true }) { LocalizedText("Split Movie / 分割影片") }
+                TextButton(onClick = { showEditorTools = false; showExportConfirmation = true }, enabled = frameCount > 0) { LocalizedText("Export Movie / 匯出影片") }
             }
         },
-        confirmButton = { TextButton(onClick = { showEditorTools = false }) { Text("Done") } }
+        confirmButton = { TextButton(onClick = { showEditorTools = false }) { LocalizedText("Done") } }
     )
     }
 
@@ -450,27 +449,27 @@ internal fun AnimationPreviewScreen(
     if (confirmApplyAll && frameCount > 0) {
         AlertDialog(
             onDismissRequest = { confirmApplyAll = false },
-            title = { Text("Change every frame?") },
-            text = { Text("Set all $frameCount photographs to ×$allDuration duration?") },
-            confirmButton = { TextButton(onClick = { confirmApplyAll = false; onSetAllDurations(allDuration) }) { Text("Apply") } },
-            dismissButton = { TextButton(onClick = { confirmApplyAll = false }) { Text("Cancel") } }
+            title = { LocalizedText("Change every frame?") },
+            text = { LocalizedText("Set all $frameCount photographs to ×$allDuration duration?") },
+            confirmButton = { TextButton(onClick = { confirmApplyAll = false; onSetAllDurations(allDuration) }) { LocalizedText("Apply") } },
+            dismissButton = { TextButton(onClick = { confirmApplyAll = false }) { LocalizedText("Cancel") } }
         )
     }
     if (pendingDeleteIds != null && framesToDelete.isNotEmpty() && confirmFrameDeletion) {
         AlertDialog(
             onDismissRequest = { pendingDeleteIds = null; doNotAskAgain = false },
-            title = { Text(if (framesToDelete.size == 1) "Delete this frame?" else "Delete ${framesToDelete.size} frames?") },
+            title = { LocalizedText(if (framesToDelete.size == 1) "Delete this frame?" else "Delete ${framesToDelete.size} frames?") },
             text = {
                 Column {
-                    Text(if (framesToDelete.size == 1) "This photo will be removed from your animation." else "These photos will be removed from your animation.")
+                    LocalizedText(if (framesToDelete.size == 1) "This photo will be removed from your animation." else "These photos will be removed from your animation.")
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = doNotAskAgain, onCheckedChange = { doNotAskAgain = it })
-                        Text("Do not ask again / 不再詢問")
+                        LocalizedText("Do not ask again / 不再詢問")
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { val ids = pendingDeleteIds.orEmpty(); pendingDeleteIds = null; if (doNotAskAgain) onSaveDeleteConfirmation(false); doNotAskAgain = false; applyDeletion(ids) }) { Text("Delete") } },
-            dismissButton = { TextButton(onClick = { pendingDeleteIds = null; doNotAskAgain = false }) { Text("Keep") } }
+            confirmButton = { TextButton(onClick = { val ids = pendingDeleteIds.orEmpty(); pendingDeleteIds = null; if (doNotAskAgain) onSaveDeleteConfirmation(false); doNotAskAgain = false; applyDeletion(ids) }) { LocalizedText("Delete") } },
+            dismissButton = { TextButton(onClick = { pendingDeleteIds = null; doNotAskAgain = false }) { LocalizedText("Keep") } }
         )
     }
     if (pendingDeleteIds != null && framesToDelete.isNotEmpty() && !confirmFrameDeletion) {
@@ -480,18 +479,18 @@ internal fun AnimationPreviewScreen(
     if (showSplitDialog && frameCount > 1) {
         AlertDialog(
             onDismissRequest = { showSplitDialog = false },
-            title = { Text("Split this movie / 分割影片") },
+            title = { LocalizedText("Split this movie / 分割影片") },
             text = {
                 Column {
-                    Text("Part A uses frames 1–$splitCutIndex. Part B starts at frame ${splitCutIndex + 1}. The original movie stays unchanged.")
+                    LocalizedText("Part A uses frames 1–$splitCutIndex. Part B starts at frame ${splitCutIndex + 1}. The original movie stays unchanged.")
                     Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(splitCutIndex - 1, splitCutIndex).forEachIndexed { side, frameIndex ->
                             val cutFrame = frames.getOrNull(frameIndex)
                             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(if (side == 0) "Last in Part A" else "First in Part B", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                LocalizedText(if (side == 0) "Last in Part A" else "First in Part B", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 if (cutFrame != null) FramePhoto(
                                     file = cutFrame.file,
-                                    contentDescription = "Frame ${frameIndex + 1} at the split point",
+                                    contentDescription = uiText("Frame ${frameIndex + 1} at the split point"),
                                     modifier = Modifier.fillMaxWidth().height(72.dp).padding(top = 4.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black),
                                     contentScale = ContentScale.Fit,
                                     maximumDimensionPx = 240
@@ -500,16 +499,16 @@ internal fun AnimationPreviewScreen(
                         }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { splitCutIndex = (splitCutIndex - 1).coerceAtLeast(1) }, enabled = splitCutIndex > 1) { Text("‹ Cut") }
-                        Text("${splitCutIndex} | ${splitCutIndex + 1}", fontWeight = FontWeight.Bold)
-                        TextButton(onClick = { splitCutIndex = (splitCutIndex + 1).coerceAtMost(frameCount - 1) }, enabled = splitCutIndex < frameCount - 1) { Text("Cut ›") }
+                        TextButton(onClick = { splitCutIndex = (splitCutIndex - 1).coerceAtLeast(1) }, enabled = splitCutIndex > 1) { LocalizedText("‹ Cut") }
+                        LocalizedText("${splitCutIndex} | ${splitCutIndex + 1}", fontWeight = FontWeight.Bold)
+                        TextButton(onClick = { splitCutIndex = (splitCutIndex + 1).coerceAtMost(frameCount - 1) }, enabled = splitCutIndex < frameCount - 1) { LocalizedText("Cut ›") }
                     }
-                    OutlinedTextField(value = splitPartAName, onValueChange = { splitPartAName = it.take(60) }, label = { Text("Part A name") }, singleLine = true)
-                    OutlinedTextField(value = splitPartBName, onValueChange = { splitPartBName = it.take(60) }, label = { Text("Part B name") }, singleLine = true)
+                    OutlinedTextField(value = splitPartAName, onValueChange = { splitPartAName = it.take(60) }, label = { LocalizedText("Part A name") }, singleLine = true)
+                    OutlinedTextField(value = splitPartBName, onValueChange = { splitPartBName = it.take(60) }, label = { LocalizedText("Part B name") }, singleLine = true)
                 }
             },
-            confirmButton = { TextButton(onClick = { showSplitDialog = false; onSplitMovie(splitCutIndex, splitPartAName, splitPartBName) }, enabled = splitPartAName.isNotBlank() && splitPartBName.isNotBlank()) { Text("Create both movies") } },
-            dismissButton = { TextButton(onClick = { showSplitDialog = false }) { Text("Cancel") } }
+            confirmButton = { TextButton(onClick = { showSplitDialog = false; onSplitMovie(splitCutIndex, splitPartAName, splitPartBName) }, enabled = splitPartAName.isNotBlank() && splitPartBName.isNotBlank()) { LocalizedText("Create both movies") } },
+            dismissButton = { TextButton(onClick = { showSplitDialog = false }) { LocalizedText("Cancel") } }
         )
     }
 
@@ -545,19 +544,19 @@ internal fun AnimationPreviewScreen(
         MovieExportState.Idle -> Unit
         is MovieExportState.Running -> AlertDialog(
             onDismissRequest = { exportJob?.cancel() },
-            title = { Text("Making your movie…") },
+            title = { LocalizedText("Making your movie…") },
             text = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator()
-                    Text("${state.percent}% complete", modifier = Modifier.padding(top = 12.dp))
+                    LocalizedText("${state.percent}% complete", modifier = Modifier.padding(top = 12.dp))
                 }
             },
-            confirmButton = { TextButton(onClick = { exportJob?.cancel() }) { Text("Cancel") } }
+            confirmButton = { TextButton(onClick = { exportJob?.cancel() }) { LocalizedText("Cancel") } }
         )
         is MovieExportState.Complete -> AlertDialog(
             onDismissRequest = { exportState = MovieExportState.Idle },
-            title = { Text("Movie saved!") },
-            text = { Text("${state.movie.fileName}\nSaved in Movies/AnimationWorkshop") },
+            title = { LocalizedText("Movie saved!") },
+            text = { LocalizedText("${state.movie.fileName}\nSaved in Movies/AnimationWorkshop") },
             confirmButton = {
                 TextButton(onClick = {
                     runCatching {
@@ -567,15 +566,15 @@ internal fun AnimationPreviewScreen(
                         }
                         context.startActivity(Intent.createChooser(intent, "Open movie with"))
                     }.onFailure { exportState = MovieExportState.Failed("No video player could open this movie.") }
-                }) { Text("Open Movie") }
+                }) { LocalizedText("Open Movie") }
             },
-            dismissButton = { TextButton(onClick = { exportState = MovieExportState.Idle }) { Text("Done") } }
+            dismissButton = { TextButton(onClick = { exportState = MovieExportState.Idle }) { LocalizedText("Done") } }
         )
         is MovieExportState.Failed -> AlertDialog(
             onDismissRequest = { exportState = MovieExportState.Idle },
-            title = { Text("Export could not finish") },
-            text = { Text(state.message) },
-            confirmButton = { TextButton(onClick = { exportState = MovieExportState.Idle; onExportAbandoned() }) { Text("OK") } }
+            title = { LocalizedText("Export could not finish") },
+            text = { LocalizedText(state.message) },
+            confirmButton = { TextButton(onClick = { exportState = MovieExportState.Idle; onExportAbandoned() }) { LocalizedText("OK") } }
         )
     }
 }
@@ -594,31 +593,31 @@ private fun ExportConfirmationDialog(
     val seconds = frames.sumOf { it.duration.coerceIn(1, 10) } / fps.coerceIn(1, 24).toDouble()
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text("Export Movie") },
+        title = { LocalizedText("Export Movie") },
         text = {
             Column {
-                Text("Estimated duration: ${String.format(Locale.US, "%.2f", seconds)} seconds")
+                LocalizedText("Estimated duration: ${String.format(Locale.US, "%.2f", seconds)} seconds")
                 val configuration = result?.getOrNull()
                 if (configuration != null) {
-                    Text("Resolution: ${configuration.width} × ${configuration.height}", modifier = Modifier.padding(top = 6.dp))
-                    Text("Animation speed: ${configuration.projectFps} FPS", modifier = Modifier.padding(top = 4.dp))
+                    LocalizedText("Resolution: ${configuration.width} × ${configuration.height}", modifier = Modifier.padding(top = 6.dp))
+                    LocalizedText("Animation speed: ${configuration.projectFps} FPS", modifier = Modifier.padding(top = 4.dp))
                     if (configuration.encoderFps != configuration.projectFps) {
-                        Text(
+                        LocalizedText(
                             "Video stream: ${configuration.encoderFps} FPS. Frame timing is distributed to preserve the animation speed.",
                             modifier = Modifier.padding(top = 6.dp)
                         )
                     }
                 } else if (result == null) {
-                    Text("Checking video encoder…", modifier = Modifier.padding(top = 8.dp))
+                    LocalizedText("Checking video encoder…", modifier = Modifier.padding(top = 8.dp))
                 } else {
-                    Text(result?.exceptionOrNull()?.message ?: "No compatible video encoder is available.", modifier = Modifier.padding(top = 8.dp))
+                    LocalizedText(result?.exceptionOrNull()?.message ?: "No compatible video encoder is available.", modifier = Modifier.padding(top = 8.dp))
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = { result?.getOrNull()?.let(onExport) }, enabled = result?.isSuccess == true) { Text("Export") }
+            TextButton(onClick = { result?.getOrNull()?.let(onExport) }, enabled = result?.isSuccess == true) { LocalizedText("Export") }
         },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = onCancel) { LocalizedText("Cancel") } }
     )
 }
 
@@ -648,16 +647,16 @@ private fun FrameThumbnail(
     ) {
         FramePhoto(
             file = frame.file,
-            contentDescription = "Frame $frameNumber thumbnail",
+            contentDescription = uiText("Frame $frameNumber thumbnail"),
             modifier = Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(7.dp)).background(Color.Black),
             contentScale = ContentScale.Fit,
             maximumDimensionPx = 480,
             rotationDegrees = rotationDegrees
         )
         if (multiSelected) {
-            Text("✓", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.End).padding(5.dp))
+            LocalizedText("✓", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.End).padding(5.dp))
         }
-        Text(
+        LocalizedText(
             "$frameNumber   ×${frame.duration}",
             color = Color.White,
             fontSize = 12.sp,
@@ -693,7 +692,7 @@ private fun FramePhoto(
                 contentScale = contentScale
             )
         } else {
-            Text(if (decoded.first) "Photo unavailable" else "Loading…", color = Color.White.copy(alpha = .65f), fontSize = 12.sp)
+            LocalizedText(if (decoded.first) "Photo unavailable" else "Loading…", color = Color.White.copy(alpha = .65f), fontSize = 12.sp)
         }
     }
 }
