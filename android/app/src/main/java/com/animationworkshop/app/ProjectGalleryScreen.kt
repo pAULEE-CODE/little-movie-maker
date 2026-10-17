@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -52,6 +53,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -64,7 +67,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
+import java.io.File
 import java.util.Date
+import android.graphics.BitmapFactory
+import android.media.ExifInterface
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -158,7 +164,7 @@ internal fun ProjectGalleryScreen(
             .background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp)
     ) {
         val previewItem = projects.firstOrNull { it.project.id == previewProjectId }
-        Box(Modifier.fillMaxWidth().height(184.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             if (previewItem != null) GalleryMotionPreview(previewItem, animate = automaticPreview)
             else Card(Modifier.fillMaxWidth().height(168.dp), shape = RoundedCornerShape(18.dp)) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LocalizedText("Your movie shelf is ready for a story!\n準備好開始創作了！", textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
@@ -460,11 +466,13 @@ private fun ProjectCard(
 }
 
 @Composable
-private fun GalleryMotionPreview(item: ProjectGalleryItem, animate: Boolean = true) {
+internal fun GalleryMotionPreview(item: ProjectGalleryItem, animate: Boolean = true) {
     var index by remember(item.project.id) { mutableIntStateOf(0) }
     val frame = item.previewFrames.getOrNull(index.coerceIn(0, (item.previewFrames.size - 1).coerceAtLeast(0)))
-    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, frame?.file?.absolutePath) {
-        value = frame?.let { withContext(Dispatchers.IO) { decodeSampledFrame(it.file, 480, 320, item.rotationDegrees) } }
+    val frameAspectRatio by produceState(16f / 9f, frame?.file?.absolutePath, item.rotationDegrees) {
+        value = frame?.let { current ->
+            withContext(Dispatchers.IO) { previewFrameAspectRatio(current.file, item.rotationDegrees) }
+        } ?: (16f / 9f)
     }
     LaunchedEffect(item.project.id, item.previewFrames, item.fps, item.rotationDegrees) {
         if (item.previewFrames.isEmpty()) return@LaunchedEffect
@@ -479,27 +487,89 @@ private fun GalleryMotionPreview(item: ProjectGalleryItem, animate: Boolean = tr
             index = (index + 1) % item.previewFrames.size
         }
     }
-    Card(
-        Modifier.fillMaxWidth().height(176.dp),
-        colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.Black),
-        shape = RoundedCornerShape(18.dp)
-    ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                LocalizedText("Preview / 預覽", color = androidx.compose.ui.graphics.Color.White, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
-                LocalizedText(item.project.name, color = androidx.compose.ui.graphics.Color.White.copy(alpha = .85f), fontSize = 12.sp, maxLines = 1)
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val maxPanelHeight = (maxHeight * .46f).coerceAtLeast(1.dp)
+        val minPanelHeight = minOf(160.dp, maxPanelHeight)
+        val panelHeight = (maxWidth / frameAspectRatio.coerceIn(.25f, 4f)).coerceIn(minPanelHeight, maxPanelHeight)
+        Card(
+            Modifier.fillMaxWidth().height(panelHeight).testTag("gallery-preview-panel"),
+            colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.Black),
+            shape = RoundedCornerShape(18.dp)
+        ) {
+            BoxWithConstraints(
+                Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black),
+                contentAlignment = Alignment.Center
+            ) {
+                val density = LocalDensity.current
+                val targetWidth = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
+                val targetHeight = with(density) { maxHeight.roundToPx() }.coerceAtLeast(1)
+                val bitmap by produceState<android.graphics.Bitmap?>(null, frame?.file?.absolutePath, targetWidth, targetHeight, item.rotationDegrees) {
+                    value = frame?.let { current ->
+                        withContext(Dispatchers.IO) {
+                            decodeSampledFrame(current.file, targetWidth, targetHeight, item.rotationDegrees)
+                        }
+                    }
+                }
+                when {
+                    item.frameCount == 0 -> LocalizedText("This movie is ready for its first frame", color = androidx.compose.ui.graphics.Color.White.copy(alpha = .8f))
+                    bitmap != null -> Image(
+                        bitmap!!.asImageBitmap(),
+                        contentDescription = uiText("Animated preview frame ${index + 1} of ${item.frameCount} for ${item.project.name}"),
+                        modifier = Modifier.fillMaxSize().testTag("gallery-preview-image"),
+                        contentScale = ContentScale.Fit
+                    )
+                    else -> LocalizedText("Preview photo unavailable", color = androidx.compose.ui.graphics.Color.White.copy(alpha = .7f))
+                }
+
+                Row(
+                    Modifier.align(Alignment.TopStart).fillMaxWidth().padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    PreviewOverlayLabel(item.project.name, Modifier.weight(1f).padding(end = 8.dp), maxLines = 1)
+                    PreviewOverlayLabel("${item.fps} FPS", maxLines = 1)
+                }
+                PreviewOverlayLabel(
+                    "Frame ${index + 1} of ${item.frameCount}",
+                    Modifier.align(Alignment.BottomEnd).padding(8.dp).testTag("gallery-preview-frame-counter"),
+                    maxLines = 1
+                )
             }
-            LocalizedText("${item.fps} FPS", color = androidx.compose.ui.graphics.Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
-        Box(Modifier.fillMaxWidth().weight(1f).background(androidx.compose.ui.graphics.Color.Black), contentAlignment = Alignment.Center) {
-            when {
-                item.frameCount == 0 -> LocalizedText("This movie is ready for its first frame", color = androidx.compose.ui.graphics.Color.White.copy(alpha = .8f))
-                bitmap != null -> Image(bitmap!!.asImageBitmap(), contentDescription = uiText("Animated preview of ${item.project.name}"), modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                else -> LocalizedText("Preview photo unavailable", color = androidx.compose.ui.graphics.Color.White.copy(alpha = .7f))
-            }
-        }
-        LocalizedText("Frame ${index + 1} of ${item.frameCount}", color = androidx.compose.ui.graphics.Color.White.copy(alpha = .8f), fontSize = 11.sp, modifier = Modifier.align(Alignment.End).padding(horizontal = 12.dp, vertical = 6.dp))
     }
+}
+
+@Composable
+private fun PreviewOverlayLabel(text: String, modifier: Modifier = Modifier, maxLines: Int) {
+    LocalizedText(
+        text,
+        color = androidx.compose.ui.graphics.Color.White,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        maxLines = maxLines,
+        modifier = modifier
+            .clip(RoundedCornerShape(9.dp))
+            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = .58f))
+            .padding(horizontal = 8.dp, vertical = 5.dp)
+    )
+}
+
+internal fun previewFrameAspectRatio(file: File, rotationDegrees: Int = 0): Float? {
+    if (!file.isFile) return null
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(file.absolutePath, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    val orientation = runCatching {
+        ExifInterface(file.absolutePath).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+    }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+    val exifSwapsDimensions = orientation == ExifInterface.ORIENTATION_TRANSPOSE ||
+        orientation == ExifInterface.ORIENTATION_ROTATE_90 ||
+        orientation == ExifInterface.ORIENTATION_TRANSVERSE ||
+        orientation == ExifInterface.ORIENTATION_ROTATE_270
+    val width = if (exifSwapsDimensions) bounds.outHeight else bounds.outWidth
+    val height = if (exifSwapsDimensions) bounds.outWidth else bounds.outHeight
+    val movieSwapsDimensions = ((rotationDegrees % 360) + 360) % 180 != 0
+    return (if (movieSwapsDimensions) height.toFloat() / width else width.toFloat() / height).takeIf { it.isFinite() && it > 0f }
 }
 
 @Composable

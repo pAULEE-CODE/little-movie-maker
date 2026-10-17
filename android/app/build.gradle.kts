@@ -13,8 +13,8 @@ android {
         applicationId = "com.animationworkshop.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 8
-        versionName = "1.4-test4"
+        versionCode = 9
+        versionName = "1.4-test5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
