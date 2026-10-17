@@ -695,7 +695,7 @@ private fun StopMotionApp(themeMode: String, onThemeModeChange: (String) -> Unit
                     if (failure == null) loadGallery(activeProject?.id)
                 }
             },
-            onDurationChange = { id, duration -> frameStore?.let { store -> editFrames({ store.setDuration(id, duration) }) } },
+            onAdjustFrameDurations = { ids, amount -> frameStore?.let { store -> editFrames({ store.adjustDurations(ids, amount) }) } },
             onSetAllDurations = { duration -> frameStore?.let { store -> editFrames({ store.setAllDurations(duration) }) } },
             onSplitMovie = { cutIndex, partA, partB ->
                 val sourceId = activeProject?.id

@@ -119,7 +119,7 @@ internal fun AnimationPreviewScreen(
     onSaveDeleteConfirmation: (Boolean) -> Unit,
     onSaveTimelineZoom: (Int) -> Unit,
     onRotateMovie: (Int) -> Unit,
-    onDurationChange: (String, Int) -> Unit,
+    onAdjustFrameDurations: (Set<String>, Int) -> Unit,
     onSetAllDurations: (Int) -> Unit,
     onSplitMovie: (Int, String, String) -> Unit,
     onBackToCamera: () -> Unit
@@ -141,6 +141,10 @@ internal fun AnimationPreviewScreen(
     var confirmApplyAll by remember { mutableStateOf(false) }
     val selectedIndex = frames.indexOfFirst { it.id == selectedId }.let { if (it < 0) 0 else it }
     val selectedFrame = frames.getOrNull(selectedIndex)
+    val holdTargetFrames = if (selectionMode && selectedIds.isNotEmpty()) frames.filter { it.id in selectedIds } else listOfNotNull(selectedFrame)
+    val holdTargetIds = holdTargetFrames.mapTo(linkedSetOf()) { it.id }
+    val holdDurations = holdTargetFrames.map { it.duration }.distinct()
+    val holdDurationLabel = if (holdDurations.size == 1) "×${holdDurations.single()}" else "Mixed"
     val latestSelectedId by rememberUpdatedState(selectedId)
     val latestOnSelect by rememberUpdatedState<(String?) -> Unit>(newValue = { id -> selectedId = id })
     val listState = rememberLazyListState()
@@ -423,9 +427,9 @@ internal fun AnimationPreviewScreen(
                         TextButton(onClick = { onMoveFrame(selectedFrame.id, 1) }, enabled = selectedIndex < frameCount - 1) { Text("→") }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Selected hold · ×${selectedFrame.duration}", modifier = Modifier.weight(1f))
-                        TextButton(onClick = { onDurationChange(selectedFrame.id, selectedFrame.duration - 1) }, enabled = selectedFrame.duration > 1) { Text("−") }
-                        TextButton(onClick = { onDurationChange(selectedFrame.id, selectedFrame.duration + 1) }, enabled = selectedFrame.duration < 10) { Text("+") }
+                        Text("Selected hold · $holdDurationLabel (${holdTargetIds.size})", modifier = Modifier.weight(1f))
+                        TextButton(onClick = { onAdjustFrameDurations(holdTargetIds, -1) }, enabled = holdTargetFrames.any { it.duration > 1 }) { Text("−") }
+                        TextButton(onClick = { onAdjustFrameDurations(holdTargetIds, 1) }, enabled = holdTargetFrames.any { it.duration < 10 }) { Text("+") }
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {

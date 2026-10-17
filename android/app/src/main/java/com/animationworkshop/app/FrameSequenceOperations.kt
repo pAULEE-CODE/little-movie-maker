@@ -2,6 +2,14 @@ package com.animationworkshop.app
 
 /** Small deterministic sequence rules shared by editing, split/merge and unit tests. */
 internal object FrameSequenceOperations {
+    /** Adjust each selected frame relative to its own duration; unrelated frames remain untouched. */
+    fun adjustDurations(frames: List<AnimationFrame>, selectedIds: Set<String>, amount: Int): List<AnimationFrame> {
+        if (selectedIds.isEmpty() || amount == 0) return frames
+        return frames.map { frame ->
+            if (frame.id in selectedIds) frame.copy(duration = (frame.duration + amount).coerceIn(1, 10)) else frame
+        }
+    }
+
     /** cutIndex is the index of the first frame in part B (a boundary between frames). */
     fun split(frames: List<AnimationFrame>, cutIndex: Int): Pair<List<AnimationFrame>, List<AnimationFrame>> {
         require(cutIndex in 1 until frames.size) { "Choose a cut point between two frames" }

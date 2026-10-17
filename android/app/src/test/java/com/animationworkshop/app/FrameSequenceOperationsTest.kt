@@ -47,6 +47,21 @@ class FrameSequenceOperationsTest {
     }
 
     @Test
+    fun selectedHoldAdjustmentsUpdateOnlySelectedFramesAndClampIndividually() {
+        val source = listOf(
+            AnimationFrame("a", File("a.jpg"), duration = 1),
+            AnimationFrame("b", File("b.jpg"), duration = 4),
+            AnimationFrame("c", File("c.jpg"), duration = 10)
+        )
+
+        val increased = FrameSequenceOperations.adjustDurations(source, setOf("a", "c"), 1)
+        assertEquals(listOf(2, 4, 10), increased.map { it.duration })
+
+        val decreased = FrameSequenceOperations.adjustDurations(increased, setOf("a", "c"), -1)
+        assertEquals(listOf(1, 4, 9), decreased.map { it.duration })
+    }
+
+    @Test
     fun exportedMovieNamesAreScopedToTheirProject() {
         val alpha = "12345678-aaaa-bbbb-cccc-dddddddddddd"
         val beta = "87654321-aaaa-bbbb-cccc-dddddddddddd"

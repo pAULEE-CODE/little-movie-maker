@@ -78,6 +78,15 @@ internal class FrameStore(private val projectFolder: File) {
     }
 
     @Synchronized
+    fun adjustDurations(ids: Set<String>, amount: Int): List<AnimationFrame> {
+        val current = frames()
+        if (ids.isEmpty() || amount == 0) return current
+        val updated = FrameSequenceOperations.adjustDurations(current, ids, amount)
+        writeManifest(updated)
+        return updated
+    }
+
+    @Synchronized
     fun duplicateFrame(id: String): List<AnimationFrame> {
         val current = frames().toMutableList()
         val index = current.indexOfFirst { it.id == id }
