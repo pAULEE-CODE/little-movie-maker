@@ -103,6 +103,7 @@ internal fun AnimationPreviewScreen(
     confirmFrameDeletion: Boolean,
     timelineZoomLevel: Int,
     rotationDegrees: Int,
+    effects: MovieEffects = MovieEffects(),
     settingsMessage: String?,
     mode: ModeDestination,
     exportRequest: Int,
@@ -188,13 +189,13 @@ internal fun AnimationPreviewScreen(
         }
     }
 
-    LaunchedEffect(isPlaying, fps, frames) {
-        if (!isPlaying || frameCount <= 1) return@LaunchedEffect
-
+    LaunchedEffect(isPlaying, fps, frames, effects) {
+        val timeline = buildMovieTimeline(frames, effects)
+        if (!isPlaying || timeline.size <= 1) return@LaunchedEffect
         val rate = fps.coerceIn(1, 24)
-        fun durationNanos(frame: AnimationFrame) = 1_000_000_000L * frame.duration.coerceIn(1, 10) / rate
-        var index = selectedIndex
-        var nextDeadline = SystemClock.elapsedRealtimeNanos() + durationNanos(frames[index])
+        fun durationNanos(entry: TimedMovieFrame) = 1_000_000_000L * entry.durationTicks / rate
+        var index = timeline.indexOfFirst { it.frame.id == selectedId }.coerceAtLeast(0)
+        var nextDeadline = SystemClock.elapsedRealtimeNanos() + durationNanos(timeline[index])
         while (isActive) {
             val remainingNanos = nextDeadline - SystemClock.elapsedRealtimeNanos()
             if (remainingNanos > 0L) {
@@ -204,9 +205,9 @@ internal fun AnimationPreviewScreen(
 
             val now = SystemClock.elapsedRealtimeNanos()
             while (now >= nextDeadline) {
-                index = (index + 1) % frameCount
-                latestOnSelect(frames[index].id)
-                nextDeadline += durationNanos(frames[index])
+                index = (index + 1) % timeline.size
+                latestOnSelect(timeline[index].frame.id)
+                nextDeadline += durationNanos(timeline[index])
             }
         }
     }
@@ -255,7 +256,8 @@ internal fun AnimationPreviewScreen(
                     modifier = Modifier.fillMaxSize().padding(8.dp),
                     contentScale = ContentScale.Fit,
                     maximumDimensionPx = 1024,
-                    rotationDegrees = rotationDegrees
+                    rotationDegrees = rotationDegrees,
+                    effects = effects
                 )
             }
         }
@@ -268,7 +270,7 @@ internal fun AnimationPreviewScreen(
             modifier = Modifier.padding(bottom = 8.dp)
         )
         if (frameCount > 0) {
-            val movieSeconds = frames.sumOf { it.duration.coerceIn(1, 10) } / fps.coerceIn(1, 24).toDouble()
+            val movieSeconds = movieDurationSeconds(frames, effects, fps)
             LocalizedText("Movie length: ${String.format(Locale.US, "%.1f", movieSeconds)} seconds", color = MaterialTheme.colorScheme.onBackground.copy(alpha = .75f), fontSize = 13.sp, modifier = Modifier.padding(bottom = 4.dp))
         }
 
@@ -288,7 +290,10 @@ internal fun AnimationPreviewScreen(
             ) { LocalizedText("‹ Previous", maxLines = 1) }
 
             Button(
-                onClick = { isPlaying = !isPlaying },
+                onClick = {
+                    if (!isPlaying && effects.timeline == TimelineEffectType.REVERSE) selectedId = frames.lastOrNull()?.id
+                    isPlaying = !isPlaying
+                },
                 modifier = Modifier.weight(1f),
                 enabled = frameCount > 1,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
@@ -517,6 +522,7 @@ internal fun AnimationPreviewScreen(
             frames = frames,
             fps = fps,
             rotationDegrees = rotationDegrees,
+            effects = effects,
             onCancel = { showExportConfirmation = false; onExportAbandoned() },
             onExport = { configuration ->
                 showExportConfirmation = false
@@ -524,7 +530,7 @@ internal fun AnimationPreviewScreen(
                 exportJob = exportScope.launch {
                     try {
                         val movie = withContext(Dispatchers.IO) {
-                            Mp4Exporter.export(context, frames, configuration, projectId, rotationDegrees) { percent ->
+                            Mp4Exporter.export(context, frames, configuration, projectId, rotationDegrees, effects) { percent ->
                                 withContext(Dispatchers.Main) { exportState = MovieExportState.Running(percent) }
                             }
                         }
@@ -584,13 +590,14 @@ private fun ExportConfirmationDialog(
     frames: List<AnimationFrame>,
     fps: Int,
     rotationDegrees: Int,
+    effects: MovieEffects,
     onCancel: () -> Unit,
     onExport: (ExportConfiguration) -> Unit
 ) {
     val result by produceState<Result<ExportConfiguration>?>(null, frames, fps, rotationDegrees) {
         value = withContext(Dispatchers.IO) { runCatching { Mp4Exporter.inspect(frames, fps, rotationDegrees) } }
     }
-    val seconds = frames.sumOf { it.duration.coerceIn(1, 10) } / fps.coerceIn(1, 24).toDouble()
+    val seconds = movieDurationSeconds(frames, effects, fps)
     AlertDialog(
         onDismissRequest = onCancel,
         title = { LocalizedText("Export Movie") },
@@ -667,23 +674,35 @@ private fun FrameThumbnail(
 }
 
 @Composable
-private fun FramePhoto(
+internal fun FramePhoto(
     file: File,
     contentDescription: String,
     modifier: Modifier,
     contentScale: ContentScale,
     maximumDimensionPx: Int,
-    rotationDegrees: Int = 0
+    rotationDegrees: Int = 0,
+    effects: MovieEffects = MovieEffects()
 ) {
     BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
         val density = LocalDensity.current
         val widthPx = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1).coerceAtMost(maximumDimensionPx)
         val heightPx = with(density) { maxHeight.roundToPx() }.coerceAtLeast(1).coerceAtMost(maximumDimensionPx)
-        val decoded by produceState(false to null as Bitmap?, file.absolutePath, widthPx, heightPx, rotationDegrees) {
-            val result = withContext(Dispatchers.IO) { decodeSampledFrame(file, widthPx, heightPx, rotationDegrees) }
-            value = true to result
+        val decoded by produceState<Triple<Boolean, Bitmap?, Boolean>>(Triple(false, null, false), file.absolutePath, widthPx, heightPx, rotationDegrees, effects) {
+            val result = withContext(Dispatchers.IO) {
+                val source = decodeSampledFrame(file, widthPx, heightPx, rotationDegrees)
+                if (source == null) null to false
+                else {
+                    val effected = renderImageEffect(source, effects)
+                    effected to (effected !== source)
+                }
+            }
+            value = Triple(true, result.first, result.second)
         }
         val bitmap = decoded.second
+        val ownsBitmap = decoded.third
+        DisposableEffect(bitmap, ownsBitmap) {
+            onDispose { if (ownsBitmap) bitmap?.takeIf { !it.isRecycled }?.recycle() }
+        }
         if (bitmap != null) {
             Image(
                 bitmap = bitmap!!.asImageBitmap(),

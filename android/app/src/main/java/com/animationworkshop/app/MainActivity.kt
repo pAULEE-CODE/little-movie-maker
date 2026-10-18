@@ -162,6 +162,7 @@ private fun StopMotionApp(
     val activeProject = projects.firstOrNull { it.project.id == activeProjectId }?.project
     val frameStore = remember(projectRepository, activeProject?.id) { activeProject?.let(projectRepository::frameStore) }
     var screen by remember { mutableStateOf(AppScreen.HOME) }
+    var effectsReturnScreen by remember { mutableStateOf(AppScreen.GALLERY) }
     var timelapseConfig by remember { mutableStateOf<TimelapseConfig?>(null) }
     var modesOpen by remember { mutableStateOf(false) }
     var activeMode by remember { mutableStateOf(ModeDestination.CAMERA) }
@@ -172,6 +173,7 @@ private fun StopMotionApp(
     var showTimelapseNavigationConfirm by remember { mutableStateOf(false) }
     var reviewIndex by remember { mutableStateOf(0) }
     var playbackFps by remember { mutableStateOf(8) }
+    var movieEffects by remember { mutableStateOf(MovieEffects()) }
     var confirmFrameDeletion by remember { mutableStateOf(true) }
     var timelineZoomLevel by remember { mutableStateOf(1) }
     var movieRotationDegrees by remember { mutableIntStateOf(0) }
@@ -208,7 +210,7 @@ private fun StopMotionApp(
             AppScreen.PREVIEW -> AppScreen.CAMERA
             AppScreen.REVIEW -> AppScreen.HOME
             AppScreen.TIMELAPSE_SETUP -> AppScreen.CAMERA
-            AppScreen.EFFECTS -> AppScreen.GALLERY
+            AppScreen.EFFECTS -> effectsReturnScreen
             AppScreen.SETTINGS -> AppScreen.GALLERY
             else -> screen
         }
@@ -235,7 +237,7 @@ private fun StopMotionApp(
             all.map { project ->
                 val store = projectRepository.frameStore(project)
                 val frames = store.frames()
-                ProjectGalleryItem(project, frames.size, frames.lastOrNull()?.file, store.playbackFps(), frames, store.movieRotationDegrees())
+                ProjectGalleryItem(project, frames.size, frames.lastOrNull()?.file, store.playbackFps(), frames, store.movieRotationDegrees(), store.movieEffects())
             }
         }
         projects = items
@@ -276,7 +278,9 @@ private fun StopMotionApp(
             withContext(Dispatchers.IO) { projectRepository.setActiveProjectId(project.id) }
             activeProjectId = project.id
             loadGallery(project.id)
-            playbackFps = withContext(Dispatchers.IO) { projectRepository.frameStore(project).playbackFps() }
+            val store = projectRepository.frameStore(project)
+            playbackFps = withContext(Dispatchers.IO) { store.playbackFps() }
+            movieEffects = withContext(Dispatchers.IO) { store.movieEffects() }
             refresh++
             activeMode = ModeDestination.CAMERA
             screen = if (hasCameraPermission) AppScreen.CAMERA else AppScreen.CAMERA
@@ -340,9 +344,9 @@ private fun StopMotionApp(
                 if (destination == ModeDestination.EXPORT) exportRequest++
             }
             ModeDestination.PROJECTS -> screen = AppScreen.GALLERY
-            ModeDestination.EFFECTS -> screen = AppScreen.EFFECTS
+            ModeDestination.EFFECTS -> { effectsReturnScreen = if (screen == AppScreen.TIMELAPSE) AppScreen.CAMERA else screen; screen = AppScreen.EFFECTS }
             ModeDestination.SETTINGS -> screen = AppScreen.SETTINGS
-            ModeDestination.ADVANCED -> screen = AppScreen.EFFECTS
+            ModeDestination.ADVANCED -> { effectsReturnScreen = if (screen == AppScreen.TIMELAPSE) AppScreen.CAMERA else screen; screen = AppScreen.EFFECTS }
             ModeDestination.SHARE -> shareLatestExportedMovie()
         }
     }
@@ -370,12 +374,13 @@ private fun StopMotionApp(
 
     LaunchedEffect(activeProject?.id) {
         val store = frameStore
-        if (store == null) { playbackFps = 8; confirmFrameDeletion = true; timelineZoomLevel = 1; return@LaunchedEffect }
+        if (store == null) { playbackFps = 8; movieEffects = MovieEffects(); confirmFrameDeletion = true; timelineZoomLevel = 1; return@LaunchedEffect }
         val settings = withContext(Dispatchers.IO) { listOf(store.playbackFps(), if (store.deleteConfirmationEnabled()) 1 else 0, store.timelineZoomLevel(), store.movieRotationDegrees()) }
         playbackFps = settings[0]
         confirmFrameDeletion = settings[1] == 1
         timelineZoomLevel = settings[2]
         movieRotationDegrees = settings[3]
+        movieEffects = withContext(Dispatchers.IO) { store.movieEffects() }
     }
 
     fun editFrames(block: () -> List<AnimationFrame>, onSuccess: (List<AnimationFrame>) -> Unit = {}) {
@@ -594,7 +599,8 @@ private fun StopMotionApp(
                                 val store = projectRepository.frameStore(project)
                                 val frames = store.frames()
                                 val rotation = store.movieRotationDegrees()
-                                Mp4Exporter.export(context, frames, Mp4Exporter.inspect(frames, store.playbackFps(), rotation), project.id, rotation) { percent ->
+                                val effects = store.movieEffects()
+                                Mp4Exporter.export(context, frames, Mp4Exporter.inspect(frames, store.playbackFps(), rotation), project.id, rotation, effects) { percent ->
                                     withContext(Dispatchers.Main) { projectMessage = "Exporting ${index + 1} of ${selected.size}: ${project.name} · $percent%" }
                                 }
                             }
@@ -611,7 +617,9 @@ private fun StopMotionApp(
                         persistenceScope.launch {
                             withContext(Dispatchers.IO) { projectRepository.setActiveProjectId(project.id) }
                             activeProjectId = project.id
-                            playbackFps = withContext(Dispatchers.IO) { projectRepository.frameStore(project).playbackFps() }
+                            val store = projectRepository.frameStore(project)
+                            playbackFps = withContext(Dispatchers.IO) { store.playbackFps() }
+                            movieEffects = withContext(Dispatchers.IO) { store.movieEffects() }
                             refresh++
                             previewMode = if (action == ProjectAction.EDIT) ModeDestination.EDIT else ModeDestination.PREVIEW
                             if (action == ProjectAction.EXPORT) exportRequest++
@@ -626,7 +634,9 @@ private fun StopMotionApp(
                             pendingShareProjectId = project.id
                             withContext(Dispatchers.IO) { projectRepository.setActiveProjectId(project.id) }
                             activeProjectId = project.id
-                            playbackFps = withContext(Dispatchers.IO) { projectRepository.frameStore(project).playbackFps() }
+                            val store = projectRepository.frameStore(project)
+                            playbackFps = withContext(Dispatchers.IO) { store.playbackFps() }
+                            movieEffects = withContext(Dispatchers.IO) { store.movieEffects() }
                             refresh++
                             previewMode = ModeDestination.PREVIEW
                             exportRequest++
@@ -678,6 +688,7 @@ private fun StopMotionApp(
             confirmFrameDeletion = confirmFrameDeletion,
             timelineZoomLevel = timelineZoomLevel,
             rotationDegrees = movieRotationDegrees,
+            effects = movieEffects,
             settingsMessage = settingsMessage,
             mode = previewMode,
             exportRequest = exportRequest,
@@ -757,9 +768,27 @@ private fun StopMotionApp(
                 }
             )
         }
-        AppScreen.EFFECTS -> EffectsPlaceholderScreen(
-            onBack = { screen = AppScreen.GALLERY },
-            onOpenModes = { modesOpen = true }
+        AppScreen.EFFECTS -> EffectsStudioScreen(
+            projects = projects,
+            initialProjectId = activeProjectId,
+            onBack = { screen = effectsReturnScreen },
+            onOpenModes = { modesOpen = true },
+            onApply = { projectId, effects ->
+                persistenceScope.launch {
+                    val target = projectRepository.projects().firstOrNull { it.id == projectId }
+                    val failure = withContext(Dispatchers.IO) {
+                        runCatching { target?.let(projectRepository::frameStore)?.saveMovieEffects(effects) }
+                            .exceptionOrNull()
+                    }
+                    if (failure == null && target != null) {
+                        if (projectId == activeProjectId) movieEffects = effects.normalized()
+                        loadGallery(projectId)
+                        settingsMessage = null
+                    } else {
+                        settingsMessage = failure?.message ?: "Effects could not be saved. Please try again."
+                    }
+                }
+            }
         )
         AppScreen.SETTINGS -> SettingsScreen(
             themeMode = themeMode,
@@ -941,23 +970,6 @@ private fun PermissionScreen(onRequest: () -> Unit, onBack: () -> Unit) {
         LocalizedText("We need camera access so you can take your movie frames.", color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 16.dp))
         Button(onClick = onRequest, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { LocalizedText("Allow camera") }
         LocalizedText("Go back", color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable(onClick = onBack).padding(16.dp))
-    }
-}
-
-@Composable
-private fun EffectsPlaceholderScreen(onBack: () -> Unit, onOpenModes: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().background(Color(0xFFFFFDF5)).windowInsetsPadding(WindowInsets.statusBars).padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        LocalizedText("✨", fontSize = 54.sp)
-        LocalizedText("Effects / 特效", color = MaterialTheme.colorScheme.onBackground, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 12.dp))
-        LocalizedText("Coming Soon! / 即將推出！", color = MaterialTheme.colorScheme.primary, fontSize = 21.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-        Row(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = onBack, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { LocalizedText("Projects / 專案") }
-            Button(onClick = onOpenModes, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { LocalizedText("MODES") }
-        }
     }
 }
 

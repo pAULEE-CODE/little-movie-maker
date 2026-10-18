@@ -222,6 +222,9 @@ internal class FrameStore(private val projectFolder: File) {
             check(frame.file.renameTo(trashFile)) { "Could not safely remove a selected photo" }
         }
         writeManifest(all.filterNot { it.id in ids })
+        if (readProjectProperties().getProperty("effect.freezeFrameId")?.let { it in ids } == true) {
+            updateProjectProperties { remove("effect.freezeFrameId") }
+        }
         trashFolder.deleteRecursively()
         pendingDelete.baseFile.delete()
     }
@@ -257,6 +260,37 @@ internal class FrameStore(private val projectFolder: File) {
         val normalized = ((degrees % 360) + 360) % 360
         require(normalized % 90 == 0) { "Movie rotation must use 90-degree steps" }
         updateProjectProperties { setProperty("movieRotationDegrees", normalized.toString()) }
+    }
+
+    @Synchronized
+    fun movieEffects(): MovieEffects {
+        val properties = readProjectProperties()
+        val image = runCatching {
+            ImageEffectType.valueOf(properties.getProperty("effect.image", ImageEffectType.NONE.name))
+        }.getOrDefault(ImageEffectType.NONE)
+        val timeline = runCatching {
+            TimelineEffectType.valueOf(properties.getProperty("effect.timeline", TimelineEffectType.NORMAL.name))
+        }.getOrDefault(TimelineEffectType.NORMAL)
+        return MovieEffects(
+            image = image,
+            strength = properties.getProperty("effect.strength")?.toFloatOrNull() ?: 1f,
+            timeline = timeline,
+            freezeFrameId = properties.getProperty("effect.freezeFrameId"),
+            freezeMultiplier = properties.getProperty("effect.freezeMultiplier")?.toIntOrNull() ?: 3
+        ).normalized()
+    }
+
+    @Synchronized
+    fun saveMovieEffects(effects: MovieEffects) {
+        val settings = effects.normalized()
+        updateProjectProperties {
+            setProperty("effect.image", settings.image.name)
+            setProperty("effect.strength", settings.strength.toString())
+            setProperty("effect.timeline", settings.timeline.name)
+            if (settings.freezeFrameId == null) remove("effect.freezeFrameId")
+            else setProperty("effect.freezeFrameId", settings.freezeFrameId)
+            setProperty("effect.freezeMultiplier", settings.freezeMultiplier.toString())
+        }
     }
 
     private fun photoFiles(): List<File> = projectFolder.listFiles { file ->

@@ -72,6 +72,7 @@ internal object Mp4Exporter {
         configuration: ExportConfiguration,
         projectId: String? = null,
         rotationDegrees: Int = 0,
+        effects: MovieEffects = MovieEffects(),
         onProgress: suspend (Int) -> Unit
     ): ExportedMovie {
         require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -88,8 +89,10 @@ internal object Mp4Exporter {
             put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/AnimationWorkshop")
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
+        val timeline = buildMovieTimeline(frames, effects)
+        require(timeline.isNotEmpty()) { "Add at least one photograph before exporting." }
         val outputUri = resolver.insert(collection, values) ?: error("Android could not create the movie file.")
-        Log.i(TAG, "Export started: frames=${frames.size}, projectFps=${configuration.projectFps}, output=${configuration.width}x${configuration.height}, destination=$fileName")
+        Log.i(TAG, "Export started: sourceFrames=${frames.size}, timelineFrames=${timeline.size}, imageEffect=${effects.image}, timelineEffect=${effects.timeline}, projectFps=${configuration.projectFps}, output=${configuration.width}x${configuration.height}, destination=$fileName")
         var published = false
         var codec: MediaCodec? = null
         var muxer: MediaMuxer? = null
@@ -122,7 +125,7 @@ internal object Mp4Exporter {
             codecStarted = true
             Log.i(TAG, "Encoder started: name=${activeCodec.name}, inputFormat=${activeCodec.inputFormat}, configuredFormat=$format")
 
-            val totalTicks = frames.sumOf { it.duration.coerceIn(1, 10).toLong() }
+            val totalTicks = timeline.sumOf { it.durationTicks.toLong() }
             val totalOutputFrames = ceil(totalTicks.toDouble() * selectedFps / configuration.projectFps).toLong().coerceAtLeast(1L)
             var trackIndex = -1
             val bufferInfo = MediaCodec.BufferInfo()
@@ -198,10 +201,10 @@ internal object Mp4Exporter {
                 }
             }
 
-            val cumulativeEnds = LongArray(frames.size)
+            val cumulativeEnds = LongArray(timeline.size)
             var elapsedTicks = 0L
-            frames.forEachIndexed { index, frame ->
-                elapsedTicks += frame.duration.coerceIn(1, 10)
+            timeline.forEachIndexed { index, entry ->
+                elapsedTicks += entry.durationTicks
                 cumulativeEnds[index] = elapsedTicks
             }
             var sourceIndex = 0
@@ -213,27 +216,32 @@ internal object Mp4Exporter {
             for (outputIndex in 0 until totalOutputFrames) {
                 contextJob.ensureActive()
                 val timelinePosition = outputIndex * configuration.projectFps.toLong()
-                while (sourceIndex < frames.lastIndex && timelinePosition >= cumulativeEnds[sourceIndex] * selectedFps) {
+                while (sourceIndex < timeline.lastIndex && timelinePosition >= cumulativeEnds[sourceIndex] * selectedFps) {
                     sourceIndex++
                 }
                 if (cachedSourceIndex != sourceIndex) {
                     // Export owns and recycles these bitmaps. Never borrow a preview-cache entry,
                     // because recycling a cached bitmap invalidates LruCache's size accounting.
                     val decoded = decodeSampledFrame(
-                        frames[sourceIndex].file,
+                        timeline[sourceIndex].frame.file,
                         configuration.width,
                         configuration.height,
                         cacheResult = false
                     )
-                        ?: error("Frame ${sourceIndex + 1} could not be read. Check that the photograph is still available.")
+                        ?: error("A frame in the animation could not be read. Check that the photograph is still available.")
                     try {
                         val source = rotateMovieFrame(decoded, rotationDegrees)
                         try {
-                            val fitted = fitToOutput(source, configuration.width, configuration.height)
+                            val effected = renderImageEffect(source, effects)
                             try {
-                                yuvFrame = bitmapToYuv420(fitted, pixelScratch)
+                                val fitted = fitToOutput(effected, configuration.width, configuration.height)
+                                try {
+                                    yuvFrame = bitmapToYuv420(fitted, pixelScratch)
+                                } finally {
+                                    if (fitted !== effected) fitted.recycle()
+                                }
                             } finally {
-                                if (fitted !== source) fitted.recycle()
+                                if (effected !== source) effected.recycle()
                             }
                         } finally {
                             if (source !== decoded) source.recycle()

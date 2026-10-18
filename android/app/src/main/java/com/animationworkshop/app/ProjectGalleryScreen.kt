@@ -82,7 +82,8 @@ internal data class ProjectGalleryItem(
     val thumbnailFile: java.io.File?,
     val fps: Int = 8,
     val previewFrames: List<AnimationFrame> = emptyList(),
-    val rotationDegrees: Int = 0
+    val rotationDegrees: Int = 0,
+    val effects: MovieEffects = MovieEffects()
 )
 internal enum class ProjectGalleryView { LARGE, SMALL, LIST }
 internal enum class ProjectAction(val label: String) {
@@ -483,23 +484,24 @@ private fun ProjectCard(
 @Composable
 internal fun GalleryMotionPreview(item: ProjectGalleryItem, animate: Boolean = true, fixedPanelHeight: Dp? = null) {
     var index by remember(item.project.id) { mutableIntStateOf(0) }
-    val frame = item.previewFrames.getOrNull(index.coerceIn(0, (item.previewFrames.size - 1).coerceAtLeast(0)))
+    val timeline = remember(item.previewFrames, item.effects) { buildMovieTimeline(item.previewFrames, item.effects) }
+    val frame = timeline.getOrNull(index.coerceIn(0, (timeline.size - 1).coerceAtLeast(0)))?.frame
     val frameAspectRatio by produceState(16f / 9f, frame?.file?.absolutePath, item.rotationDegrees) {
         value = frame?.let { current ->
             withContext(Dispatchers.IO) { previewFrameAspectRatio(current.file, item.rotationDegrees) }
         } ?: (16f / 9f)
     }
-    LaunchedEffect(item.project.id, item.previewFrames, item.fps, item.rotationDegrees) {
-        if (item.previewFrames.isEmpty()) return@LaunchedEffect
+    LaunchedEffect(item.project.id, timeline, item.fps, item.rotationDegrees) {
+        if (timeline.isEmpty()) return@LaunchedEffect
         if (!animate) {
             index = 0
             return@LaunchedEffect
         }
         index = 0
         while (isActive) {
-            val holdMillis = (1000L * (item.previewFrames[index].duration.coerceIn(1, 10)) / item.fps.coerceIn(1, 24)).coerceAtLeast(1L)
+            val holdMillis = (1000L * timeline[index].durationTicks / item.fps.coerceIn(1, 24)).coerceAtLeast(1L)
             delay(holdMillis)
-            index = (index + 1) % item.previewFrames.size
+            index = (index + 1) % timeline.size
         }
     }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -518,18 +520,26 @@ internal fun GalleryMotionPreview(item: ProjectGalleryItem, animate: Boolean = t
                 val density = LocalDensity.current
                 val targetWidth = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
                 val targetHeight = with(density) { maxHeight.roundToPx() }.coerceAtLeast(1)
-                val bitmap by produceState<android.graphics.Bitmap?>(null, frame?.file?.absolutePath, targetWidth, targetHeight, item.rotationDegrees) {
+                val rendered by produceState<Triple<android.graphics.Bitmap?, Boolean, Boolean>>(Triple(null, false, false), frame?.file?.absolutePath, targetWidth, targetHeight, item.rotationDegrees, item.effects) {
                     value = frame?.let { current ->
                         withContext(Dispatchers.IO) {
-                            decodeSampledFrame(current.file, targetWidth, targetHeight, item.rotationDegrees)
+                            val source = decodeSampledFrame(current.file, targetWidth, targetHeight, item.rotationDegrees)
+                            if (source == null) Triple(null, true, false) else {
+                                val effected = renderImageEffect(source, item.effects)
+                                Triple(effected, true, effected !== source)
+                            }
                         }
-                    }
+                    } ?: Triple(null, true, false)
+                }
+                val bitmap = rendered.first
+                androidx.compose.runtime.DisposableEffect(bitmap, rendered.third) {
+                    onDispose { if (rendered.third) bitmap?.takeIf { !it.isRecycled }?.recycle() }
                 }
                 when {
                     item.frameCount == 0 -> LocalizedText("This movie is ready for its first frame", color = androidx.compose.ui.graphics.Color.White.copy(alpha = .8f))
                     bitmap != null -> Image(
-                        bitmap!!.asImageBitmap(),
-                        contentDescription = uiText("Animated preview frame ${index + 1} of ${item.frameCount} for ${item.project.name}"),
+                        bitmap.asImageBitmap(),
+                        contentDescription = uiText("Animated preview frame ${index + 1} of ${timeline.size} for ${item.project.name}"),
                         modifier = Modifier.fillMaxSize().testTag("gallery-preview-image"),
                         contentScale = ContentScale.Fit
                     )
