@@ -1,32 +1,58 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#ffdc42">
-<meta name="description" content="Little Movie Maker at Hungkuo Delin University of Technology. All ages welcome! Monday, Thursday and Friday lunchtimes. Mini whiteboards provided.">
-<title>Little Movie Maker | 小小電影製作家</title>
-<style>
-*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#fff0ad;font-family:system-ui,-apple-system,'Noto Sans TC',sans-serif;color:#1e2340}.site{width:min(100%,900px);margin:auto;box-shadow:0 0 45px #573b412b;position:relative}.art{position:relative;line-height:0}.art img{width:100%;height:auto;display:block}.hotspot{position:absolute;display:block;border-radius:18px;cursor:pointer;z-index:2}.hotspot:focus-visible{outline:5px solid #00e5ff;outline-offset:3px;background:#fff4}.jump{left:0%;top:9%;width:30%;height:8%}.download{left:36%;top:77.7%;width:39%;height:7.7%}.footer{background:#fff8d9;text-align:center;padding:22px 20px 28px;line-height:1.55}.footer h2{font-size:clamp(1.2rem,3.8vw,1.75rem);margin:0 0 8px}.footer p{margin:8px auto;max-width:580px}.cta{display:inline-flex;align-items:center;justify-content:center;gap:9px;background:#078f50;color:white;font-weight:800;font-size:1.08rem;text-decoration:none;border:3px solid #065d36;border-radius:18px;padding:15px 22px;margin:14px auto 4px;box-shadow:0 5px 0 #065d36;transition:transform .15s}.cta:hover{transform:translateY(-2px)}.cta:focus-visible{outline:4px solid #ea319a;outline-offset:3px}.note{font-size:.94rem}.muted{color:#4c5266;font-size:.85rem}.back{color:#183e93;font-weight:700;display:inline-block;margin-top:10px}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.cta{transition:none}}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#fff0ad">
+  <meta name="description" content="Follow the Little Movie Maker story: draw ideas, create characters, take photographs, animate, edit and share a movie. 小小電影製作家，一起把故事變成動畫！">
+  <title>Little Movie Maker | 小小電影製作家</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, -apple-system, "Noto Sans TC", sans-serif; color: #202545; background: #fff0ad; }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; }
+    main { width: min(100%, 980px); margin-inline: auto; background: #fff; box-shadow: 0 0 42px rgb(45 32 56 / 14%); }
+    h1.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+    figure { margin: 0; line-height: 0; background: #fff; }
+    .story-art { display: block; width: 100%; height: auto; }
+    .download { padding: clamp(28px, 7vw, 56px) clamp(20px, 6vw, 48px); text-align: center; background: linear-gradient(145deg, #fff8d9, #f3eaff); line-height: 1.55; }
+    .download h2 { margin: 0 0 8px; font-size: clamp(1.5rem, 5vw, 2.3rem); color: #202c78; }
+    .download .zh { margin: 0 0 12px; font-size: 1.15rem; font-weight: 700; }
+    .download p { max-width: 650px; margin: 10px auto; }
+    .download-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 14px; margin: 16px auto 8px; }
+    .download-actions .release-link { margin: 0; }
+    .beta-label { display: inline-flex; align-items: center; justify-content: center; min-width: 74px; padding: 10px 16px; border: 3px solid #9a1748; border-radius: 14px; background: #ff6689; color: #fff; font-size: 1.05rem; font-weight: 900; letter-spacing: .08em; box-shadow: 0 4px 0 #9a1748; transform: rotate(-3deg); }
+    .beta-message { font-size: 1.15rem; color: #202c78; }
+    .release-link { display: inline-flex; align-items: center; justify-content: center; gap: 10px; margin: 16px auto 8px; padding: 14px 24px; border: 3px solid #056548; border-radius: 18px; background: #08a77a; color: #fff; font-size: 1.1rem; font-weight: 800; text-decoration: none; box-shadow: 0 5px 0 #056548; transition: transform .15s; }
+    .release-link:hover { filter: brightness(1.05); transform: translateY(-1px); }
+    :focus-visible { outline: 4px solid #ed399b; outline-offset: 4px; }
+    .install { font-size: .95rem; }
+    footer { padding: 18px; text-align: center; color: #555b70; font-size: .9rem; background: #fff; }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .release-link { transition: none; transform: none; } }
+  </style>
 </head>
 <body>
-<main class="site" id="top">
-  <div class="art">
-    <img src="workshop-poster.png" alt="Colourful illustrated Little Movie Maker workshop journey. Everyone is welcome. Monday, Thursday and Friday lunchtimes. Mini whiteboards provided. Children and teenagers draw, take photos, make animations, edit and watch their movies. Android app download at the bottom." width="796" height="2048" fetchpriority="high">
-    <a class="hotspot jump" href="#get-app" aria-label="Need the app? Jump down to the Android download"></a>
-    <a class="hotspot download" href="https://drive.google.com/drive/folders/1QlS_X4p3_75vPCKay7j0T2lHAgegOE2Q?usp=sharing" target="_blank" rel="noopener noreferrer" aria-label="Open Little Movie Maker Android app download folder in Google Drive"></a>
-  </div>
-  <section class="footer" id="get-app" aria-label="Download and workshop information">
-    <h2>🎬 Download Little Movie Maker!</h2>
-    <p><strong>下載小小電影製作家！</strong></p>
-    <a class="cta" href="https://drive.google.com/drive/folders/1QlS_X4p3_75vPCKay7j0T2lHAgegOE2Q?usp=sharing" target="_blank" rel="noopener noreferrer">🤖 Download for Android ↗</a>
-    <p class="note">Android only for now. Apple version: coming soon!<br>目前僅支援 Android。Apple 版本敬請期待！</p>
-    <p class="note">No Android? You can still join! Draw, plan stories, and make movies with friends.<br>沒有 Android 手機也能參加！一起畫畫、編故事、製作影片！</p>
-    <p><strong>Monday · Thursday · Friday — Lunchtime</strong><br>星期一、星期四、星期五 — 午休時間<br>Mini whiteboards provided · 提供小白板</p>
-    <p class="muted">The download opens our shared Google Drive folder. Only install apps from sources you trust. This is a workshop test version.</p>
-    <a class="back" href="#top">↑ Back to the beginning · 返回頂部</a>
-  </section>
-</main>
+  <main id="top">
+    <h1 class="visually-hidden">Little Movie Maker — 小小電影製作家</h1>
+    <figure aria-label="The complete Little Movie Maker illustrated story, from drawing ideas through making a finished movie">
+      <!-- Replace these lossless image tiles to refresh the approved launch artwork. -->
+      <img class="story-art" src="assets/little-movie-maker-story-01.webp" alt="A colourful, very tall illustrated guide to making a stop-motion movie: children draw story ideas, make characters, photograph and animate scenes, edit their movie, and celebrate the finished film." width="1024" height="6144" fetchpriority="high" decoding="async">
+      <img class="story-art" src="assets/little-movie-maker-story-02.webp" alt="" aria-hidden="true" width="1024" height="6144" loading="lazy" decoding="async">
+      <img class="story-art" src="assets/little-movie-maker-story-03.webp" alt="" aria-hidden="true" width="1024" height="6144" loading="lazy" decoding="async">
+    </figure>
+    <section class="download" id="android-download" aria-labelledby="download-title">
+      <h2 id="download-title">🎬 Little Movie Maker for Android</h2>
+      <p class="zh" lang="zh-Hant">下載小小電影製作家</p>
+      <div class="download-actions">
+        <a class="release-link" href="https://github.com/pAULEE-CODE/little-movie-maker/releases/download/v1.5-effects01-beta.1/LittleMovieMaker-1.5-effects01-BETA.apk" aria-label="Download the Little Movie Maker beta APK">🤖 Download for Android</a>
+        <span class="beta-label" role="note" aria-label="Beta test version">BETA</span>
+      </div>
+      <p class="beta-message"><strong>Little Movie Maker is still in development!</strong></p>
+      <p>We're inviting testers to try the app and help us improve it. More features and effects are on the way!</p>
+      <p class="install">Beta version 1.5-effects01 (version code 11). Download the APK on your Android device, open it, and follow the installation prompts. Android may ask you to allow your browser or file manager to install this app.</p>
+      <p lang="zh-Hant">小小電影製作家仍在開發中！歡迎測試並協助我們改進，更多功能與效果即將推出。下載 APK 後，請依照 Android 手機的安裝提示操作。</p>
+    </section>
+    <footer>Little Movie Maker · 小小電影製作家</footer>
+  </main>
 </body>
 </html>
