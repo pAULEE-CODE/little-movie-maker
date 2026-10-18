@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -60,6 +59,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -159,86 +159,100 @@ internal fun ProjectGalleryScreen(
         }
     }
 
-    Column(
+    BoxWithConstraints(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
             .background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp)
+            .testTag("projects-screen")
     ) {
-        val previewItem = projects.firstOrNull { it.project.id == previewProjectId }
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            if (previewItem != null) GalleryMotionPreview(previewItem, animate = automaticPreview)
-            else Card(Modifier.fillMaxWidth().height(168.dp), shape = RoundedCornerShape(18.dp)) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LocalizedText("Your movie shelf is ready for a story!\n準備好開始創作了！", textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
+        val previewHeight = (maxHeight * .22f).coerceIn(104.dp, 176.dp)
+        Column(Modifier.fillMaxSize()) {
+            val previewItem = projects.firstOrNull { it.project.id == previewProjectId }
+            Column(Modifier.fillMaxWidth().testTag("gallery-fixed-region"), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Row(
+                Modifier.fillMaxWidth().height(44.dp).testTag("projects-fixed-heading"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                TextButton(onClick = onBack) { LocalizedText("← Home") }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    LocalizedText("My Little Movies", fontSize = 18.sp, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.ExtraBold)
+                    LocalizedText("我的小電影", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                }
+                TextButton(onClick = onOpenModes) { LocalizedText("MODES") }
             }
-        }
-
-        LazyColumn(
-            state = galleryListState,
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            verticalArrangement = Arrangement.spacedBy(if (viewMode == ProjectGalleryView.LIST) 4.dp else 10.dp)
-        ) {
-            item(key = "gallery-controls") {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = onBack) { LocalizedText("← Home") }
-                            TextButton(onClick = onOpenModes) { LocalizedText("MODES") }
-                        }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            LocalizedText("My Little Movies", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.ExtraBold)
-                            LocalizedText("我的小電影", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                        }
-                        Spacer(Modifier.size(68.dp))
-                    }
-                    Button(
-                        onClick = { dialog = GalleryDialog.Create }, enabled = !busy,
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                        shape = RoundedCornerShape(18.dp)
-                    ) { LocalizedText("＋  New Movie / 新增電影", fontSize = 19.sp, fontWeight = FontWeight.Bold) }
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        LocalizedText("Location: $folderLocation", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                        Row {
-                            if (currentFolder != null) TextButton(onClick = onOpenParentFolder) { LocalizedText("↑ Parent") }
-                            TextButton(onClick = { folderDialog = FolderDialog.Create }) { LocalizedText("＋ Folder") }
-                        }
-                    }
-                    if (childFolders.isNotEmpty()) LazyRow(
-                        Modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        items(childFolders, key = { "folder-${it.id}" }) { folder ->
-                            FolderChip(folder, onOpen = { onOpenFolder(folder) }, onRename = { folderDialog = FolderDialog.Rename(folder) },
-                                onMove = { folderPendingMove = folder; folderMoveDestination = folder.parentId }, onDelete = { folderPendingDelete = folder })
-                        }
-                    }
-                    if (selectionMode) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        LocalizedText("${selectedProjectIds.size} selected", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { selectionMode = false; selectedProjectIds.clear() }) { LocalizedText("Done") }
-                        TextButton(onClick = { showMoveFolder = true }) { LocalizedText("Move") }
-                        TextButton(onClick = { mergeOrder = selectedProjects.map { it.project.id }; mergeFps = selectedProjects.firstOrNull()?.fps ?: 8; dialog = GalleryDialog.Merge }, enabled = selectedProjectIds.size >= 2) { LocalizedText("Merge") }
-                        TextButton(onClick = { onBatchExport(selectedProjects.map { it.project }) }, enabled = selectedProjects.isNotEmpty() && !busy) { LocalizedText("Export") }
-                        TextButton(onClick = { showBatchDelete = true }, enabled = selectedProjects.isNotEmpty(), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { LocalizedText("Delete") }
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        ProjectGalleryView.entries.forEach { option ->
-                            Button(
-                                onClick = { onViewModeChange(option) }, modifier = Modifier.weight(1f).height(46.dp),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 4.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = if (viewMode == option) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                    contentColor = if (viewMode == option) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant),
-                                shape = RoundedCornerShape(14.dp)
-                            ) {
-                                LocalizedText(when (option) {
-                                    ProjectGalleryView.LARGE -> "Large / 大圖"
-                                    ProjectGalleryView.SMALL -> "Small / 小圖"
-                                    ProjectGalleryView.LIST -> "List / 清單"
-                                }, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                            }
-                        }
-                    }
-                    if (busy) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).padding(6.dp), color = MaterialTheme.colorScheme.primary)
-                    message?.let { LocalizedText(it, color = MaterialTheme.colorScheme.error) }
+            if (previewItem != null) GalleryMotionPreview(previewItem, animate = automaticPreview, fixedPanelHeight = previewHeight)
+            else Card(Modifier.fillMaxWidth().height(previewHeight).testTag("gallery-preview-panel"), shape = RoundedCornerShape(18.dp)) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    LocalizedText("Your movie shelf is ready for a story!\n準備好開始創作了！", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
             }
+            Button(
+                onClick = { dialog = GalleryDialog.Create }, enabled = !busy,
+                modifier = Modifier.fillMaxWidth().height(48.dp).testTag("gallery-new-movie-button"),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                shape = RoundedCornerShape(16.dp)
+            ) { LocalizedText("＋  New Movie / 新增電影", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+            Row(Modifier.fillMaxWidth().height(38.dp).testTag("gallery-location-controls"), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                LocalizedText("Location: $folderLocation", color = MaterialTheme.colorScheme.onBackground, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f))
+                if (currentFolder != null) TextButton(onClick = onOpenParentFolder) { LocalizedText("↑ Parent") }
+                TextButton(onClick = { folderDialog = FolderDialog.Create }) { LocalizedText("＋ Folder") }
+            }
+            if (selectionMode) Row(Modifier.fillMaxWidth().height(38.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                LocalizedText("${selectedProjectIds.size} selected", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                TextButton(onClick = { selectionMode = false; selectedProjectIds.clear() }) { LocalizedText("Done") }
+                TextButton(onClick = { showMoveFolder = true }) { LocalizedText("Move") }
+                TextButton(onClick = { mergeOrder = selectedProjects.map { it.project.id }; mergeFps = selectedProjects.firstOrNull()?.fps ?: 8; dialog = GalleryDialog.Merge }, enabled = selectedProjectIds.size >= 2) { LocalizedText("Merge") }
+                TextButton(onClick = { onBatchExport(selectedProjects.map { it.project }) }, enabled = selectedProjects.isNotEmpty() && !busy) { LocalizedText("Export") }
+                TextButton(onClick = { showBatchDelete = true }, enabled = selectedProjects.isNotEmpty(), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { LocalizedText("Delete") }
+            }
+            Row(Modifier.fillMaxWidth().height(44.dp).testTag("gallery-view-mode-controls"), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ProjectGalleryView.entries.forEach { option ->
+                    Button(
+                        onClick = { onViewModeChange(option) }, modifier = Modifier.weight(1f).height(44.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = if (viewMode == option) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (viewMode == option) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        LocalizedText(when (option) {
+                            ProjectGalleryView.LARGE -> "Large / 大圖"
+                            ProjectGalleryView.SMALL -> "Small / 小圖"
+                            ProjectGalleryView.LIST -> "List / 清單"
+                        }, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
+                }
+            }
+            if (busy || message != null) Row(Modifier.fillMaxWidth().height(24.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                if (busy) CircularProgressIndicator(Modifier.size(18.dp), color = MaterialTheme.colorScheme.primary, strokeWidth = 2.dp)
+                message?.let { LocalizedText(it, color = MaterialTheme.colorScheme.error, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(start = 6.dp)) }
+            }
+            }
+
+            LazyColumn(
+                state = galleryListState,
+                modifier = Modifier.fillMaxWidth().weight(1f).testTag("gallery-collection"),
+                verticalArrangement = Arrangement.spacedBy(if (viewMode == ProjectGalleryView.LIST) 4.dp else 10.dp)
+            ) {
+                if (viewMode == ProjectGalleryView.SMALL) {
+                    items(childFolders.chunked(2), key = { row -> "folder:${row.first().id}" }) { row ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            row.forEach { folder ->
+                                FolderCollectionCard(folder, folderProjectCounts[folder.id] ?: 0, viewMode,
+                                    onOpen = { onOpenFolder(folder) }, onRename = { folderDialog = FolderDialog.Rename(folder) },
+                                    onMove = { folderPendingMove = folder; folderMoveDestination = folder.parentId },
+                                    onDelete = { folderPendingDelete = folder }, modifier = Modifier.weight(1f))
+                            }
+                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                } else {
+                    items(childFolders, key = { "folder:${it.id}" }) { folder ->
+                        FolderCollectionCard(folder, folderProjectCounts[folder.id] ?: 0, viewMode,
+                            onOpen = { onOpenFolder(folder) }, onRename = { folderDialog = FolderDialog.Rename(folder) },
+                            onMove = { folderPendingMove = folder; folderMoveDestination = folder.parentId },
+                            onDelete = { folderPendingDelete = folder })
+                    }
+                }
 
             if (projects.isEmpty() && childFolders.isEmpty() && !busy) {
                 item(key = "gallery-empty") { Box(Modifier.fillMaxWidth().padding(vertical = 28.dp), contentAlignment = Alignment.Center) { LocalizedText("Your movie shelf is ready for a story!\n準備好開始創作了！", color = MaterialTheme.colorScheme.onBackground, fontSize = 19.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center) } }
@@ -267,6 +281,7 @@ internal fun ProjectGalleryScreen(
                         onAction = { action -> onProjectAction(item.project, action) })
                 }
             }
+        }
         }
     }
 
@@ -466,7 +481,7 @@ private fun ProjectCard(
 }
 
 @Composable
-internal fun GalleryMotionPreview(item: ProjectGalleryItem, animate: Boolean = true) {
+internal fun GalleryMotionPreview(item: ProjectGalleryItem, animate: Boolean = true, fixedPanelHeight: Dp? = null) {
     var index by remember(item.project.id) { mutableIntStateOf(0) }
     val frame = item.previewFrames.getOrNull(index.coerceIn(0, (item.previewFrames.size - 1).coerceAtLeast(0)))
     val frameAspectRatio by produceState(16f / 9f, frame?.file?.absolutePath, item.rotationDegrees) {
@@ -490,7 +505,7 @@ internal fun GalleryMotionPreview(item: ProjectGalleryItem, animate: Boolean = t
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val maxPanelHeight = (maxHeight * .46f).coerceAtLeast(1.dp)
         val minPanelHeight = minOf(160.dp, maxPanelHeight)
-        val panelHeight = (maxWidth / frameAspectRatio.coerceIn(.25f, 4f)).coerceIn(minPanelHeight, maxPanelHeight)
+        val panelHeight = fixedPanelHeight ?: (maxWidth / frameAspectRatio.coerceIn(.25f, 4f)).coerceIn(minPanelHeight, maxPanelHeight)
         Card(
             Modifier.fillMaxWidth().height(panelHeight).testTag("gallery-preview-panel"),
             colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.Black),
@@ -627,18 +642,76 @@ private fun NameDialog(title: String, initial: String, confirm: String, onDismis
 }
 
 @Composable
-private fun FolderChip(folder: AnimationFolder, onOpen: () -> Unit, onRename: () -> Unit, onMove: () -> Unit, onDelete: () -> Unit) {
+private fun FolderCollectionCard(
+    folder: AnimationFolder,
+    movieCount: Int,
+    viewMode: ProjectGalleryView,
+    onOpen: () -> Unit,
+    onRename: () -> Unit,
+    onMove: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     var expanded by remember(folder.id) { mutableStateOf(false) }
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
-        TextButton(onClick = onOpen, contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 4.dp)) { LocalizedText("📁 ${folder.name}", color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
-        Box {
-            LocalizedText("⋮", color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { expanded = true }.padding(horizontal = 10.dp, vertical = 8.dp))
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                DropdownMenuItem(text = { LocalizedText("Open") }, onClick = { expanded = false; onOpen() })
-                DropdownMenuItem(text = { LocalizedText("Rename") }, onClick = { expanded = false; onRename() })
-                DropdownMenuItem(text = { LocalizedText("Move folder") }, onClick = { expanded = false; onMove() })
-                DropdownMenuItem(text = { LocalizedText("Delete folder") }, onClick = { expanded = false; onDelete() })
+    val cardHeight = when (viewMode) {
+        ProjectGalleryView.LARGE -> 82.dp
+        ProjectGalleryView.SMALL -> 132.dp
+        ProjectGalleryView.LIST -> 56.dp
+    }
+    Card(
+        modifier.fillMaxWidth().height(cardHeight).clickable(onClick = onOpen),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        when (viewMode) {
+            ProjectGalleryView.LARGE -> Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                LocalizedText("📁", fontSize = 28.sp, modifier = Modifier.padding(end = 12.dp))
+                Column(Modifier.weight(1f)) {
+                    LocalizedText(folder.name, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                    LocalizedText("$movieCount movies", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                }
+                TextButton(onClick = onOpen) { LocalizedText("Open") }
+                FolderOptionsButton(expanded, { expanded = it }, onOpen, onRename, onMove, onDelete)
             }
+            ProjectGalleryView.SMALL -> Column(Modifier.fillMaxSize().padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                LocalizedText("📁", fontSize = 28.sp)
+                LocalizedText(folder.name, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, modifier = Modifier.fillMaxWidth())
+                LocalizedText("$movieCount movies", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onOpen, modifier = Modifier.weight(1f)) { LocalizedText("Open", fontSize = 12.sp) }
+                    FolderOptionsButton(expanded, { expanded = it }, onOpen, onRename, onMove, onDelete)
+                }
+            }
+            ProjectGalleryView.LIST -> Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                LocalizedText("📁", fontSize = 20.sp, modifier = Modifier.padding(end = 10.dp))
+                Column(Modifier.weight(1f)) {
+                    LocalizedText(folder.name, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                    LocalizedText("$movieCount movies", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                }
+                FolderOptionsButton(expanded, { expanded = it }, onOpen, onRename, onMove, onDelete)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FolderOptionsButton(
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onOpen: () -> Unit,
+    onRename: () -> Unit,
+    onMove: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Box {
+        TextButton(onClick = { onExpandedChange(true) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp)) {
+            LocalizedText("⋮", color = MaterialTheme.colorScheme.primary, fontSize = 18.sp)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
+            DropdownMenuItem(text = { LocalizedText("Open") }, onClick = { onExpandedChange(false); onOpen() })
+            DropdownMenuItem(text = { LocalizedText("Rename") }, onClick = { onExpandedChange(false); onRename() })
+            DropdownMenuItem(text = { LocalizedText("Move folder") }, onClick = { onExpandedChange(false); onMove() })
+            DropdownMenuItem(text = { LocalizedText("Delete folder") }, onClick = { onExpandedChange(false); onDelete() })
         }
     }
 }
